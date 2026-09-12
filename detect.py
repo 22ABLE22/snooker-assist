@@ -17,10 +17,15 @@ from config import (
     COLOR_RANGES,
     FELT_CLOTH_HSV,
     FELT_CLOTH_MODE,
+    FELT_COLOR_SCAN_RATIO,
     FELT_INSET_RATIO,
     FELT_SHADOW_MAX_AREA_RATIO,
     FELT_SHADOW_MAX_V,
     FELT_SHADOW_MIN_AREA_RATIO,
+    POCKET_DETECT_MAX_R_RATIO,
+    POCKET_DETECT_MAX_V,
+    POCKET_DETECT_MIN_R_RATIO,
+    POCKET_RECT_INSET_RATIO,
     TABLE_ASPECT,
 )
 
@@ -184,95 +189,237 @@ def pick_cloth_mask(hsv: np.ndarray) -> tuple[str, np.ndarray]:
     return best_name, best_mask
 
 
-def detect_felt(img_bgr: np.ndarray) -> tuple[int, int, int, int] | None:
-    """检测台面内沿矩形 (x,y,w,h)，支持多色台泥皮肤。
+def _find_pocket_centers(
+    hsv: np.ndarray, outer: tuple[int, int, int, int]
+) -> list[tuple[float, float, float]]:
+    """找袋口暗洞：中心 + 等效半径。袋比黑球大，比库影条更圆。"""
+    ox, oy, ow, oh = outer
+    if ow < 80 or oh < 40:
+        return []
+    img_h, img_w = hsv.shape[:2]
+    short = min(img_h, img_w)
+    V = hsv[:, :, 2]
+    pad = int(min(ow, oh) * 0.06)
+    x0, y0 = max(0, ox - pad), max(0, oy - pad)
+    x1 = min(img_w, ox + ow + pad)
+    y1 = min(img_h, oy + oh + pad)
+    sub = V[y0:y1, x0:x1]
+    dark = (sub < POCKET_DETECT_MAX_V).astype(np.uint8)
+    dark = cv2.morphologyEx(
+        dark, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    )
+    n, labels, stats, cents = cv2.connectedComponentsWithStats(dark, connectivity=8)
+    min_r = max(8.0, short * POCKET_DETECT_MIN_R_RATIO)
+    max_r = max(min_r + 4, short * POCKET_DETECT_MAX_R_RATIO)
+    out: list[tuple[float, float, float]] = []
+    for i in range(1, n):
+        x, y, w, h, area = stats[i]
+        r = (w + h) / 4.0
+        if r < min_r or r > max_r:
+            continue
+        aspect = w / max(h, 1)
+        if not (0.55 <= aspect <= 1.8):
+            continue
+        fill = area / max(w * h, 1)
+        if fill < 0.50:
+            continue
+        circ = area / (np.pi * r * r + 1e-6)
+        if circ < 0.55:
+            continue
+        cx, cy = float(cents[i][0]), float(cents[i][1])
+        out.append((x0 + cx, y0 + cy, float(r)))
+    return out
 
-    结构（由外向内）：
-      同色库边 → 黑阴影一圈 → 台泥（台面）
-    真实边界 = 库与黑影交界；台内**包含**黑阴影及其内部台泥。
+
+def _felt_from_pockets(
+    pockets: list[tuple[float, float, float]],
+    outer: tuple[int, int, int, int],
+) -> tuple[int, int, int, int] | None:
+    """四角袋心反推台面矩形。"""
+    if len(pockets) < 4:
+        return None
+    xs = [p[0] for p in pockets]
+    ys = [p[1] for p in pockets]
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys), max(ys)
+    w, h = x_max - x_min, y_max - y_min
+    if w < 80 or h < 40:
+        return None
+    aspect = w / max(h, 1)
+    if not (1.3 <= aspect <= 2.9):
+        return None
+
+    # 选最靠近四角的 4 个袋
+    def near(tx, ty):
+        return min(pockets, key=lambda p: (p[0] - tx) ** 2 + (p[1] - ty) ** 2)
+
+    cands = [near(x_min, y_min), near(x_max, y_min), near(x_min, y_max), near(x_max, y_max)]
+    # 去重
+    uniq = []
+    for c in cands:
+        if all((c[0] - u[0]) ** 2 + (c[1] - u[1]) ** 2 > 9 for u in uniq):
+            uniq.append(c)
+    if len(uniq) < 4:
+        return None
+    cxs = [c[0] for c in uniq]
+    cys = [c[1] for c in uniq]
+    x_min, x_max = min(cxs), max(cxs)
+    y_min, y_max = min(cys), max(cys)
+    w, h = x_max - x_min, y_max - y_min
+    if w < 80 or h < 40:
+        return None
+
+    # 袋心即台角/中点；按袋半径略内缩，避开袋唇/装饰角
+    avg_r = float(np.mean([c[2] for c in uniq]))
+    inset_x = max(2, int(avg_r * 0.40))
+    inset_y = max(2, int(avg_r * 0.35))
+    fx, fy = int(x_min + inset_x), int(y_min + inset_y)
+    fw, fh = int(w - 2 * inset_x), int(h - 2 * inset_y)
+    ox, oy, ow, oh = outer
+    if fw > ow * 1.08 or fh > oh * 1.08:
+        return None
+    if fw * fh < (ow * oh) * 0.15:
+        return None
+    if not (1.3 <= fw / max(fh, 1) <= 2.9):
+        return None
+    return fx, fy, fw, fh
+
+
+def _refine_felt_edges_by_color(
+    img_bgr: np.ndarray,
+    rect: tuple[int, int, int, int],
+    cloth_mask: np.ndarray,
+) -> tuple[int, int, int, int]:
+    """在袋口矩形内侧按台泥连续性收边。
+
+    注意：装饰库上可能有同色菱形，**禁止向外扩**，只向内收到真正连续的台泥。
+    """
+    fx, fy, fw, fh = rect
+    img_h, img_w = img_bgr.shape[:2]
+    scan = max(6, int(min(fw, fh) * FELT_COLOR_SCAN_RATIO * 0.5))
+    need = 0.55
+
+    def first_cloth_line(axis: str, side: int) -> int:
+        """side=-1 从外侧边向内找；side=+1 从内侧边向内找。返回相对 rect 的偏移（>=0 向内）。"""
+        steps = range(0, scan + 1, 2)
+        if axis == "h":
+            base = fy if side < 0 else fy + fh - 1
+            sign = 1 if side < 0 else -1  # 向内
+            for d in steps:
+                y = base + sign * d
+                if y < 0 or y >= img_h:
+                    continue
+                row = cloth_mask[y, fx : fx + fw]
+                if row.size and float(row.mean()) / 255.0 >= need:
+                    return d
+            return 0
+        else:
+            base = fx if side < 0 else fx + fw - 1
+            sign = 1 if side < 0 else -1
+            for d in steps:
+                x = base + sign * d
+                if x < 0 or x >= img_w:
+                    continue
+                col = cloth_mask[fy : fy + fh, x]
+                if col.size and float(col.mean()) / 255.0 >= need:
+                    return d
+            return 0
+
+    d_top = first_cloth_line("h", -1)
+    d_bot = first_cloth_line("h", 1)
+    d_left = first_cloth_line("v", -1)
+    d_right = first_cloth_line("v", 1)
+
+    nx = fx + d_left
+    ny = fy + d_top
+    nw = fw - d_left - d_right
+    nh = fh - d_top - d_bot
+    if nw < 40 or nh < 20:
+        return rect
+    if not (1.25 <= nw / max(nh, 1) <= 3.0):
+        return rect
+    return int(nx), int(ny), int(nw), int(nh)
+
+
+def detect_felt(img_bgr: np.ndarray) -> tuple[int, int, int, int] | None:
+    """检测台面矩形。
+
+    优先：六袋（黑色，不随皮肤变）定位 → 台泥颜色收边。
+    回退：台泥外轮廓 / 阴影环。
     """
     global _CLOTH_NAME
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-    H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    V = hsv[:, :, 2]
     img_h, img_w = img_bgr.shape[:2]
     img_area = img_h * img_w
 
     cloth_name, mask = pick_cloth_mask(hsv)
     cloth_ratio = float(mask.mean()) / 255.0
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
-
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours or cloth_ratio < 0.06:
+    if cloth_ratio < 0.04:
         return None
 
-    def score_cloth(c):
-        area = cv2.contourArea(c)
-        x, y, w, h = cv2.boundingRect(c)
-        aspect = w / max(h, 1)
-        return area / (1.0 + 2.0 * abs(np.log(aspect / TABLE_ASPECT)))
+    # 1) 袋口定位（主路径）
+    # 先用宽松台泥/整图做 outer 参考
+    contours, _ = cv2.findContours(
+        cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2),
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+    if contours:
+        def sc(c):
+            area = cv2.contourArea(c)
+            x, y, w, h = cv2.boundingRect(c)
+            if w < 40 or h < 20:
+                return -1
+            return area / (1.0 + 2.0 * abs(np.log((w / max(h, 1)) / TABLE_ASPECT)))
 
-    best = max(contours, key=score_cloth)
-    ox, oy, ow, oh = cv2.boundingRect(best)
-    if ow * oh < img_area * 0.12:
-        return None
-    o_aspect = ow / max(oh, 1)
-    if not (1.4 <= o_aspect <= 2.8):
-        return None
+        outer = cv2.boundingRect(max(contours, key=sc))
+    else:
+        outer = (0, 0, img_w, img_h)
 
-    outer_cloth = np.zeros(mask.shape, np.uint8)
-    cv2.drawContours(outer_cloth, [best], -1, 255, -1)
-
-    # 暗/阴影：整图低亮度，并限制在台面附近
-    dark = (V < FELT_SHADOW_MAX_V).astype(np.uint8) * 255
-    near_table = cv2.dilate(outer_cloth, kernel, iterations=4)
-    dark = cv2.bitwise_and(dark, near_table)
-
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(dark, connectivity=8)
-    shadow = np.zeros(dark.shape, np.uint8)
-    min_a = img_area * FELT_SHADOW_MIN_AREA_RATIO
-    max_a = img_area * FELT_SHADOW_MAX_AREA_RATIO
-    for i in range(1, n):
-        a = stats[i, cv2.CC_STAT_AREA]
-        if min_a <= a <= max_a:
-            shadow[labels == i] = 255
-
+    pockets = _find_pocket_centers(hsv, outer)
+    felt_pk = _felt_from_pockets(pockets, outer)
     felt = None
-    if int(shadow.sum()) > 0:
-        sk = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
-        shadow_c = cv2.morphologyEx(shadow, cv2.MORPH_CLOSE, sk, iterations=2)
-        s_contours, _ = cv2.findContours(shadow_c, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if s_contours:
-            sc = max(s_contours, key=cv2.contourArea)
-            sx, sy, sw, sh = cv2.boundingRect(sc)
-            if sw >= ow * 0.45 and sh >= oh * 0.45 and sw <= ow * 1.05 and sh <= oh * 1.05:
-                sa = sw / max(sh, 1)
-                if 1.3 <= sa <= 2.9:
-                    felt = (sx, sy, sw, sh)
+    if felt_pk is not None:
+        felt = _refine_felt_edges_by_color(img_bgr, felt_pk, mask)
 
+    # 2) 回退：阴影环 / 外轮廓内缩
     if felt is None:
-        inset = max(4, int(min(ow, oh) * max(FELT_INSET_RATIO, 0.02)))
-        if ow - 2 * inset < 40 or oh - 2 * inset < 20:
+        ox, oy, ow, oh = outer
+        if ow * oh < img_area * 0.12 or not (1.3 <= ow / max(oh, 1) <= 3.0):
             return None
-        felt = (ox + inset, oy + inset, ow - 2 * inset, oh - 2 * inset)
+        outer_cloth = np.zeros(mask.shape, np.uint8)
+        cv2.drawContours(outer_cloth, [max(contours, key=sc)], -1, 255, -1)
+        dark = (V < FELT_SHADOW_MAX_V).astype(np.uint8) * 255
+        dark = cv2.bitwise_and(dark, cv2.dilate(outer_cloth, kernel, iterations=4))
+        n, labels, stats, _ = cv2.connectedComponentsWithStats(dark, connectivity=8)
+        shadow = np.zeros(dark.shape, np.uint8)
+        min_a = img_area * FELT_SHADOW_MIN_AREA_RATIO
+        max_a = img_area * FELT_SHADOW_MAX_AREA_RATIO
+        for i in range(1, n):
+            if min_a <= stats[i, cv2.CC_STAT_AREA] <= max_a:
+                shadow[labels == i] = 255
+        if int(shadow.sum()) > 0:
+            sk = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+            sc2 = cv2.morphologyEx(shadow, cv2.MORPH_CLOSE, sk, iterations=2)
+            cs, _ = cv2.findContours(sc2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if cs:
+                sx, sy, sw, sh = cv2.boundingRect(max(cs, key=cv2.contourArea))
+                if sw >= ow * 0.45 and sh >= oh * 0.45 and 1.3 <= sw / max(sh, 1) <= 2.9:
+                    felt = (sx, sy, sw, sh)
+        if felt is None:
+            inset = max(4, int(min(ow, oh) * 0.09))
+            if ow - 2 * inset < 40 or oh - 2 * inset < 20:
+                return None
+            felt = (ox + inset, oy + inset, ow - 2 * inset, oh - 2 * inset)
 
     fx, fy, fw, fh = felt
-    inset = max(2, int(min(fw, fh) * FELT_INSET_RATIO))
-    if fw - 2 * inset < 40 or fh - 2 * inset < 20:
-        inset = 1
-    fx, fy, fw, fh = fx + inset, fy + inset, fw - 2 * inset, fh - 2 * inset
-
-    if fw * fh < img_area * 0.10:
+    if fw * fh < img_area * 0.08:
         return None
-    if not (1.35 <= fw / max(fh, 1) <= 2.8):
+    if not (1.25 <= fw / max(fh, 1) <= 3.0):
         return None
-    roi = mask[fy : fy + fh, fx : fx + fw]
-    roi_d = dark[fy : fy + fh, fx : fx + fw]
-    if roi.size == 0:
-        return None
-    cloth_or_dark = float(np.maximum(roi, roi_d).mean()) / 255.0
-    if cloth_or_dark < 0.50:
-        return None
-    return fx, fy, fw, fh
+    return int(fx), int(fy), int(fw), int(fh)
 
 
 def _classify_pixel(hsv_patch: np.ndarray) -> tuple[str, float]:

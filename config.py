@@ -53,17 +53,28 @@ FELT_SHADOW_MAX_AREA_RATIO = 0.45
 FELT_CLOTH_MODE = "auto"
 # 各色 HSV 范围 (Hmin,Smin,Vmin, Hmax,Smax,Vmax)
 FELT_CLOTH_HSV = {
-    "green": ((35, 55, 35), (95, 255, 210)),
-    "blue": ((90, 50, 40), (130, 255, 230)),
+    "green": ((30, 35, 40), (95, 255, 255)),
+    "blue": ((90, 40, 40), (130, 255, 230)),
     "red": ((0, 70, 40), (12, 255, 210)),
     "purple": ((125, 40, 40), (165, 255, 230)),
-    "yellow": ((18, 60, 50), (38, 255, 230)),
+    "yellow": ((18, 50, 50), (38, 255, 230)),
 }
 # 红色台泥会吞掉红球：检测时更依赖圆形轮廓（见 detect 红泥分支）
 
 
 # 袋口标注半径（相对台面短边）。视觉约为球径的 1.8~2.2 倍
 POCKET_DRAW_RADIUS_RATIO = 0.05
+
+# ===== 袋口定位台面（优先于台泥外轮廓）=====
+# 袋口是黑色洞，不随台泥皮肤变化。用六袋反推台面，再按颜色收边。
+POCKET_DETECT_MAX_V = 48
+# 袋口等效半径相对「图像短边」的范围（排除黑球、排除整条库影）
+POCKET_DETECT_MIN_R_RATIO = 0.018
+POCKET_DETECT_MAX_R_RATIO = 0.12
+# 四角袋心构成的矩形再微缩（袋心略在台内/袋唇上）
+POCKET_RECT_INSET_RATIO = 0.012
+# 颜色收边：在四角袋矩形上向外/向内搜索台泥的扫描宽度（相对短边）
+FELT_COLOR_SCAN_RATIO = 0.08
 
 # 库边安全距离（球心到库边至少这个比例才认为合法路径不擦库）
 CUSHION_MARGIN_RATIO = 0.012
