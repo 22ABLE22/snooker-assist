@@ -15,12 +15,17 @@ from config import (
     BALL_RADIUS_RATIO,
     BALL_RADIUS_SCALE,
     COLOR_RANGES,
+    FELT_CLOTH_HSV,
+    FELT_CLOTH_MODE,
     FELT_INSET_RATIO,
     FELT_SHADOW_MAX_AREA_RATIO,
     FELT_SHADOW_MAX_V,
     FELT_SHADOW_MIN_AREA_RATIO,
     TABLE_ASPECT,
 )
+
+# 本帧识别到的台泥颜色名
+_CLOTH_NAME = "green"
 
 
 @dataclass
@@ -115,36 +120,98 @@ def _mask_hsv(hsv: np.ndarray, color: str) -> np.ndarray:
     return mask
 
 
-def detect_felt(img_bgr: np.ndarray) -> tuple[int, int, int, int] | None:
-    """检测台面内沿矩形 (x,y,w,h)。
+def get_cloth_name() -> str:
+    return _CLOTH_NAME
 
-    腾讯桌球画面结构（由外向内）：
-      绿库边 → 黑阴影一圈 → 绿色台呢（台面）
-    真实边界 = 绿库与黑影的交界；台内范围**包含**黑阴影及其内部绿台。
+
+def _cloth_masks(hsv: np.ndarray, name: str) -> np.ndarray:
+    (h0, s0, v0), (h1, s1, v1) = FELT_CLOTH_HSV[name]
+    m = cv2.inRange(hsv, (h0, s0, v0), (h1, s1, v1))
+    if name == "red":
+        m2 = cv2.inRange(hsv, (168, s0, v0), (179, s1, v1))
+        m = cv2.bitwise_or(m, m2)
+    return m
+
+
+def pick_cloth_mask(hsv: np.ndarray) -> tuple[str, np.ndarray]:
+    """选台泥主色掩码。FELT_CLOTH_MODE=auto 时按「大矩形台面」评分。"""
+    global _CLOTH_NAME
+    mode = (FELT_CLOTH_MODE or "auto").lower()
+    names = list(FELT_CLOTH_HSV.keys())
+    if mode in FELT_CLOTH_HSV:
+        _CLOTH_NAME = mode
+        return mode, _cloth_masks(hsv, mode)
+
+    img_area = float(hsv.shape[0] * hsv.shape[1])
+    best_name, best_mask, best_score = "green", None, -1.0
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+
+    for name in names:
+        mask = _cloth_masks(hsv, name)
+        ratio = float(mask.mean()) / 255.0
+        if ratio < 0.06:
+            continue
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=3)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            continue
+
+        def sc(c):
+            area = cv2.contourArea(c)
+            x, y, w, h = cv2.boundingRect(c)
+            if w < 40 or h < 20:
+                return -1.0
+            if w * h < img_area * 0.10:
+                return -1.0
+            aspect = w / max(h, 1)
+            if not (1.3 <= aspect <= 2.9):
+                return -1.0
+            return area / (1.0 + 2.0 * abs(np.log(aspect / TABLE_ASPECT)))
+
+        cbest = max(contours, key=sc)
+        s = sc(cbest)
+        # 略偏好绿（默认皮肤）
+        if name == "green":
+            s *= 1.05
+        if s > best_score:
+            best_score, best_name, best_mask = s, name, mask
+
+    if best_mask is None or best_score < 0:
+        _CLOTH_NAME = "green"
+        return "green", _cloth_masks(hsv, "green")
+    _CLOTH_NAME = best_name
+    return best_name, best_mask
+
+
+def detect_felt(img_bgr: np.ndarray) -> tuple[int, int, int, int] | None:
+    """检测台面内沿矩形 (x,y,w,h)，支持多色台泥皮肤。
+
+    结构（由外向内）：
+      同色库边 → 黑阴影一圈 → 台泥（台面）
+    真实边界 = 库与黑影交界；台内**包含**黑阴影及其内部台泥。
     """
+    global _CLOTH_NAME
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
     H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
     img_h, img_w = img_bgr.shape[:2]
     img_area = img_h * img_w
 
-    # 绿色（库边绿 + 台面绿）
-    green = cv2.inRange(hsv, (35, 55, 35), (95, 255, 210))
-    green_ratio = float(green.mean()) / 255.0
+    cloth_name, mask = pick_cloth_mask(hsv)
+    cloth_ratio = float(mask.mean()) / 255.0
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
-    green = cv2.morphologyEx(green, cv2.MORPH_CLOSE, kernel, iterations=3)
-    green = cv2.morphologyEx(green, cv2.MORPH_OPEN, kernel, iterations=2)
 
-    contours, _ = cv2.findContours(green, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours or green_ratio < 0.08:
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours or cloth_ratio < 0.06:
         return None
 
-    def score_green(c):
+    def score_cloth(c):
         area = cv2.contourArea(c)
         x, y, w, h = cv2.boundingRect(c)
         aspect = w / max(h, 1)
         return area / (1.0 + 2.0 * abs(np.log(aspect / TABLE_ASPECT)))
 
-    best = max(contours, key=score_green)
+    best = max(contours, key=score_cloth)
     ox, oy, ow, oh = cv2.boundingRect(best)
     if ow * oh < img_area * 0.12:
         return None
@@ -152,15 +219,14 @@ def detect_felt(img_bgr: np.ndarray) -> tuple[int, int, int, int] | None:
     if not (1.4 <= o_aspect <= 2.8):
         return None
 
-    outer_green = np.zeros(green.shape, np.uint8)
-    cv2.drawContours(outer_green, [best], -1, 255, -1)
+    outer_cloth = np.zeros(mask.shape, np.uint8)
+    cv2.drawContours(outer_cloth, [best], -1, 255, -1)
 
     # 暗/阴影：整图低亮度，并限制在台面附近
     dark = (V < FELT_SHADOW_MAX_V).astype(np.uint8) * 255
-    near_table = cv2.dilate(outer_green, kernel, iterations=4)
+    near_table = cv2.dilate(outer_cloth, kernel, iterations=4)
     dark = cv2.bitwise_and(dark, near_table)
 
-    # 去掉小暗块（黑球、UI）
     n, labels, stats, _ = cv2.connectedComponentsWithStats(dark, connectivity=8)
     shadow = np.zeros(dark.shape, np.uint8)
     min_a = img_area * FELT_SHADOW_MIN_AREA_RATIO
@@ -170,32 +236,26 @@ def detect_felt(img_bgr: np.ndarray) -> tuple[int, int, int, int] | None:
         if min_a <= a <= max_a:
             shadow[labels == i] = 255
 
-    # 阴影环外沿矩形 = 绿库与黑影交界 → 台内含阴影+绿台
     felt = None
     if int(shadow.sum()) > 0:
-        # 闭合阴影，保证环连续
         sk = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
         shadow_c = cv2.morphologyEx(shadow, cv2.MORPH_CLOSE, sk, iterations=2)
         s_contours, _ = cv2.findContours(shadow_c, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if s_contours:
-            # 取面积最大的阴影块的外接框（整圈阴影或大段阴影）
             sc = max(s_contours, key=cv2.contourArea)
             sx, sy, sw, sh = cv2.boundingRect(sc)
-            # 必须大致在台面内、比例合理
             if sw >= ow * 0.45 and sh >= oh * 0.45 and sw <= ow * 1.05 and sh <= oh * 1.05:
                 sa = sw / max(sh, 1)
                 if 1.3 <= sa <= 2.9:
                     felt = (sx, sy, sw, sh)
 
     if felt is None:
-        # 无可靠阴影：退回绿轮廓 + 较大内缩
         inset = max(4, int(min(ow, oh) * max(FELT_INSET_RATIO, 0.02)))
         if ow - 2 * inset < 40 or oh - 2 * inset < 20:
             return None
         felt = (ox + inset, oy + inset, ow - 2 * inset, oh - 2 * inset)
 
     fx, fy, fw, fh = felt
-    # 极小内缩，贴交界
     inset = max(2, int(min(fw, fh) * FELT_INSET_RATIO))
     if fw - 2 * inset < 40 or fh - 2 * inset < 20:
         inset = 1
@@ -205,13 +265,12 @@ def detect_felt(img_bgr: np.ndarray) -> tuple[int, int, int, int] | None:
         return None
     if not (1.35 <= fw / max(fh, 1) <= 2.8):
         return None
-    # 矩形内应以绿+影为主
-    roi = green[fy : fy + fh, fx : fx + fw]
+    roi = mask[fy : fy + fh, fx : fx + fw]
     roi_d = dark[fy : fy + fh, fx : fx + fw]
     if roi.size == 0:
         return None
-    green_or_dark = float(np.maximum(roi, roi_d).mean()) / 255.0
-    if green_or_dark < 0.55:
+    cloth_or_dark = float(np.maximum(roi, roi_d).mean()) / 255.0
+    if cloth_or_dark < 0.50:
         return None
     return fx, fy, fw, fh
 
