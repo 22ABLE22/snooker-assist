@@ -1,0 +1,17 @@
+# 输出与缓存
+output/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 本地密钥（切勿提交）
+*.token
+secrets.*
