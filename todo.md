@@ -1,6 +1,10 @@
 # 待办 / 已知问题（Todo）
 
-审查日期：基于当前代码。按优先级排列。
+代码已整理并推送：https://github.com/22ABLE22/snooker-assist
+
+**安全提醒**：上传时使用过的 PAT 出现在对话中，**请立即到 GitHub → Settings → Developer settings 撤销该 token 并新建**。
+
+按优先级排列。
 
 ---
 
