@@ -65,6 +65,11 @@ python main.py demo        # 合成局面演示
 python test_geometry.py    # 几何单测
 ```
 
+或双击：
+
+- `启动悬浮窗.bat` — 自动进入 PEMAE 并启动 overlay  
+- `启动截图分析.bat` — 一次 `snap` 截图分析  
+
 | 热键 | 作用 |
 |------|------|
 | F8 | 截图分析（优先进球，其次解球） |

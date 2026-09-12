@@ -28,10 +28,12 @@ python test_geometry.py
 python main.py demo
 
 # 打开游戏后：悬浮窗 + 热键（推荐）
+# 双击 启动悬浮窗.bat 即可（自动进 PEMAE 环境）
 python overlay.py
 
 # 或命令行截图分析
 python main.py snap
+# 双击 启动截图分析.bat
 python main.py analyze "path\to\shot.png" --target red --both
 ```
 
