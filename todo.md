@@ -7,7 +7,13 @@
 按优先级排列。
 
 ### 2h. ~~本地启动步骤繁琐~~ ✅ 已完成
-- 新增 `启动悬浮窗.bat`、`启动截图分析.bat`（固定 PEMAE 路径，失败再试 conda activate）
+- `start_overlay.bat` + `start_snap.bat`（英文名，兼容中文入口）
+- 悬浮窗 bat **结束时 pause**，便于看到闪退原因；请用英文名 `start_overlay.bat` 双击
+
+### 2i. ~~启动悬浮窗.bat 一闪而过~~ ✅ 已加固
+- 原因未完全确定（编码/延迟展开/闪退无 pause）
+- 改为：固定 PEMAE 路径、英文主入口、退出码打印、始终 pause
+- 若仍闪退：在该目录执行 `start_overlay.bat`，把窗口里报错发我
 
 ---
 

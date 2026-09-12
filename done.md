@@ -67,8 +67,8 @@ python test_geometry.py    # 几何单测
 
 或双击：
 
-- `启动悬浮窗.bat` — 自动进入 PEMAE 并启动 overlay  
-- `启动截图分析.bat` — 一次 `snap` 截图分析  
+- `start_overlay.bat` / `启动悬浮窗.bat` — 启动悬浮窗（失败会停住显示错误码）  
+- `start_snap.bat` / `启动截图分析.bat` — 一次 `snap` 截图分析  
 
 | 热键 | 作用 |
 |------|------|
