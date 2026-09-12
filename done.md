@@ -1,6 +1,7 @@
 # 已完成（Done）
 
-腾讯桌球 / 斯诺克外置解球辅助，工作目录：`E:\Users\Admin\SNOOKER`
+腾讯桌球 / 斯诺克外置解球辅助  
+仓库：https://github.com/22ABLE22/snooker-assist （public）
 
 ## 功能
 
