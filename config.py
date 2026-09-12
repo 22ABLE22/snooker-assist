@@ -48,6 +48,20 @@ FELT_SHADOW_MAX_V = 55          # V 低于此视为暗/影
 FELT_SHADOW_MIN_AREA_RATIO = 0.01  # 相对整图，过小的暗块（黑球等）丢弃
 FELT_SHADOW_MAX_AREA_RATIO = 0.45
 
+# ===== 台泥颜色（皮肤）=====
+# auto: 按画面自动选最像台面的主色；也可写死 green/blue/red/purple/yellow
+FELT_CLOTH_MODE = "auto"
+# 各色 HSV 范围 (Hmin,Smin,Vmin, Hmax,Smax,Vmax)
+FELT_CLOTH_HSV = {
+    "green": ((35, 55, 35), (95, 255, 210)),
+    "blue": ((90, 50, 40), (130, 255, 230)),
+    "red": ((0, 70, 40), (12, 255, 210)),
+    "purple": ((125, 40, 40), (165, 255, 230)),
+    "yellow": ((18, 60, 50), (38, 255, 230)),
+}
+# 红色台泥会吞掉红球：检测时更依赖圆形轮廓（见 detect 红泥分支）
+
+
 # 袋口标注半径（相对台面短边）。视觉约为球径的 1.8~2.2 倍
 POCKET_DRAW_RADIUS_RATIO = 0.05
 

@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 
 from config import BALL_RADIUS_PX, BALL_RADIUS_RATIO, POCKET_DRAW_RADIUS_RATIO, TARGET_COLORS
-from detect import Ball, TableState, analyze_frame, draw_detection_preview
+from detect import Ball, TableState, analyze_frame, draw_detection_preview, get_cloth_name
 from geometry import (
     PathPlan,
     find_escape_paths_ranked,
@@ -152,6 +152,7 @@ def analyze(
     best_s = f"{best.score:.1f}" if best is not None else "-"
     msg = (
         f"目标={target_color} 检测球={len(state.balls)} "
+        f"台泥={get_cloth_name()} "
         f"可行={len(plans)}(进球{len(pot_plans)}/解球{len(escape_plans)}) "
         f"aspect={asp:.3f} 首选分={best_s}"
     )
