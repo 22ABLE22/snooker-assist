@@ -380,10 +380,65 @@ def normalize_ball_radii(balls: list[Ball], felt_h: int) -> list[Ball]:
     return kept
 
 
-def _refine_ball_center(
+def _near_pocket(cx: float, cy: float, fw: int, fh: int, r: float) -> bool:
+    """袋口暗洞易被误检为黑/棕球。"""
+    if fw <= 0 or fh <= 0:
+        return False
+    nx, ny = cx / fw, cy / fh
+    # 归一化下球半径
+    rr = max(r / fw, r / fh)
+    for px, py in ((0, 0), (0.5, 0), (1, 0), (0, 1), (0.5, 1), (1, 1)):
+        if (nx - px) ** 2 + (ny - py) ** 2 < (1.8 * rr + 0.015) ** 2:
+            return True
+    return False
+
+
+def _refine_dark_ball_center(
     hsv_roi: np.ndarray, cx: float, cy: float, r: float
 ) -> tuple[float, float]:
-    """用球体较亮像素质心校正球心，削弱右下阴影把中心拖偏。"""
+    """黑球球心：取最暗核的距离变换中心，避免阴影/袋口拖偏。"""
+    fh, fw = hsv_roi.shape[:2]
+    rad = max(2.0, float(r) * 1.8)
+    y0, y1 = max(0, int(cy - rad)), min(fh, int(cy + rad + 1))
+    x0, x1 = max(0, int(cx - rad)), min(fw, int(cx + rad + 1))
+    if y1 <= y0 + 2 or x1 <= x0 + 2:
+        return cx, cy
+    sub = hsv_roi[y0:y1, x0:x1]
+    V = sub[:, :, 2]
+    # 仅最暗核（球体），阴影略亮会被滤掉
+    core = (V < 38).astype(np.uint8)
+    if int(core.sum()) < 8:
+        core = (V < 48).astype(np.uint8)
+    local = np.zeros(core.shape, np.uint8)
+    cv2.circle(
+        local,
+        (int(round(cx)) - x0, int(round(cy)) - y0),
+        max(2, int(r * 0.95)),
+        255,
+        -1,
+    )
+    core = cv2.bitwise_and(core, local)
+    if int(core.sum()) < 6:
+        return cx, cy
+    dist = cv2.distanceTransform(core, cv2.DIST_L2, 5)
+    _, maxv, _, maxloc = cv2.minMaxLoc(dist)
+    if maxv < 1.0:
+        return cx, cy
+    ys, xs = np.nonzero(core)
+    w = dist[ys, xs]
+    if float(w.sum()) < 1e-6:
+        return float(x0 + maxloc[0]), float(y0 + maxloc[1])
+    nx = float(np.average(xs, weights=w)) + x0
+    ny = float(np.average(ys, weights=w)) + y0
+    return nx, ny
+
+
+def _refine_ball_center(
+    hsv_roi: np.ndarray, cx: float, cy: float, r: float, color: str = ""
+) -> tuple[float, float]:
+    """球心校正。黑球走暗核距离变换；其余用较亮像素质心。"""
+    if color == "black":
+        return _refine_dark_ball_center(hsv_roi, cx, cy, r)
     h, w = hsv_roi.shape[:2]
     y0, y1 = max(0, int(cy - r - 2)), min(h, int(cy + r + 3))
     x0, x1 = max(0, int(cx - r - 2)), min(w, int(cx + r + 3))
@@ -492,13 +547,24 @@ def _blob_balls(roi, hsv, min_r, max_r) -> list[Ball]:
             if color == "black":
                 if circularity < 0.68:
                     continue
+            # 黑球：排除贴库阴影环（沿边暗条易被当成球）
+            if color == "black":
+                m = max(r * 1.3, min_r * 1.2)
+                if cx < m or cy < m or cx > fw - m or cy > fh - m:
+                    continue
+                if circularity < 0.70:
+                    continue
+            # 袋口黑洞：黑/棕误检
+            if color in ("black", "brown") and _near_pocket(cx, cy, fw, fh, r):
+                continue
+
             clf, score = _classify_median(H, S, V, highlight)
             # 掩码颜色与复核不一致时，以复核为准，但保留高圆度候选
             if clf == "unknown":
                 clf = color
                 score = 0.55
             # 阴影补偿：用球体较亮部分重估球心
-            cx, cy = _refine_ball_center(hsv, cx, cy, r)
+            cx, cy = _refine_ball_center(hsv, cx, cy, r, color=clf)
             balls.append(Ball(x=cx, y=cy, r=float(r), color=clf, score=score))
 
     balls = _filter_size_consistent(balls, min_r, max_r)
