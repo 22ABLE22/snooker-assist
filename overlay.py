@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import json
 import ctypes
 import sys
 import time
@@ -32,15 +33,24 @@ if str(ROOT) not in sys.path:
 
 from analyze import AnalysisResult, analyze  # noqa: E402
 from capture import find_window_rect, grab_game_window  # noqa: E402
-from config import TARGET_COLORS  # noqa: E402
+from config import POCKET_DRAW_RADIUS_RATIO, TARGET_COLORS  # noqa: E402
 
 # ---------- Win32 热键（线程队列 hwnd=0，更可靠）----------
 
 user32 = ctypes.windll.user32
 WM_HOTKEY = 0x0312
 MOD_NOREPEAT = 0x4000
-VK_F8, VK_F9, VK_F10, VK_F11, VK_F12 = 0x77, 0x78, 0x79, 0x7A, 0x7B
-HOTKEY_IDS = {"F8": 108, "F9": 109, "F10": 110, "F11": 111, "F12": 112}
+VK_F6, VK_F7, VK_F8, VK_F9, VK_F10, VK_F11, VK_F12 = 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B
+HOTKEY_IDS = {
+    "F6": 106,
+    "F7": 107,
+    "F8": 108,
+    "F9": 109,
+    "F10": 110,
+    "F11": 111,
+    "F12": 112,
+}
+FELT_LOCK_PATH = ROOT / "output" / "felt_lock.json"
 # 委托在 RegisterHotKey 的线程上，消息进线程队列
 _HOTKEY_HWND = wintypes.HWND(0)
 
@@ -64,6 +74,8 @@ def register_hotkeys() -> dict[str, bool]:
     """注册全局热键到当前线程（hwnd=0）。返回各键是否成功。"""
     mods = MOD_NOREPEAT
     mapping = [
+        ("F6", HOTKEY_IDS["F6"], VK_F6),
+        ("F7", HOTKEY_IDS["F7"], VK_F7),
         ("F8", HOTKEY_IDS["F8"], VK_F8),
         ("F9", HOTKEY_IDS["F9"], VK_F9),
         ("F10", HOTKEY_IDS["F10"], VK_F10),
@@ -144,8 +156,15 @@ class OverlayApp:
         self.mode = "escape"  # escape | pot
         self.show = True
         self.last_result: AnalysisResult | None = None
-        self.status = "F8解球 F9进球 F10换目标 F11显隐 F12退出"
+        self.status = "F7校准台面 F8解球 F9进球 F10换目标 F11显隐 F6清锁定"
         self.click_through = True
+        # 台面锁定：rel=(x/W,y/H,w/W,h/H) 或 None=每次自动检测
+        self.felt_lock: tuple[float, float, float, float] | None = None
+        self.calib = False
+        self.calib_rect: list[float] = [0.1, 0.1, 0.8, 0.8]  # x,y,w,h 像素
+        self._drag_edge: str | None = None
+        self._img_size = (1, 1)
+        self._load_felt_lock()
 
         self.root = tk.Tk()
         self.root.title("Snooker Overlay")
@@ -179,6 +198,8 @@ class OverlayApp:
             import keyboard as kb  # type: ignore
 
             self._kb = kb
+            kb.add_hotkey("f6", lambda: self.root.after(0, self.on_clear_lock))
+            kb.add_hotkey("f7", lambda: self.root.after(0, self.on_calibrate))
             kb.add_hotkey("f8", lambda: self.root.after(0, self.on_escape))
             kb.add_hotkey("f9", lambda: self.root.after(0, self.on_pot))
             kb.add_hotkey("f10", lambda: self.root.after(0, self.on_cycle_target))
@@ -189,14 +210,24 @@ class OverlayApp:
             print(f"[hotkey] keyboard 库不可用: {e}")
 
         for key, fn in (
+            ("<F6>", self.on_clear_lock),
+            ("<F7>", self.on_calibrate),
             ("<F8>", self.on_escape),
             ("<F9>", self.on_pot),
             ("<F10>", self.on_cycle_target),
             ("<F11>", self.on_toggle),
             ("<F12>", self.quit),
             ("<Escape>", self.quit),
+            ("<Left>", lambda: self.nudge_edge("left", -2)),
+            ("<Right>", lambda: self.nudge_edge("left", 2)),
+            ("<Up>", lambda: self.nudge_edge("top", -2)),
+            ("<Down>", lambda: self.nudge_edge("top", 2)),
         ):
             self.root.bind_all(key, lambda e, f=fn: f())
+
+        self.canvas.bind("<Button-1>", self._on_press)
+        self.canvas.bind("<B1-Motion>", self._on_drag)
+        self.canvas.bind("<ButtonRelease-1>", self._on_release)
 
         self.root.after(40, self._tick)
 
@@ -235,6 +266,8 @@ class OverlayApp:
     def _tick(self) -> None:
         pump_hotkeys(
             {
+                HOTKEY_IDS["F6"]: self.on_clear_lock,
+                HOTKEY_IDS["F7"]: self.on_calibrate,
                 HOTKEY_IDS["F8"]: self.on_escape,
                 HOTKEY_IDS["F9"]: self.on_pot,
                 HOTKEY_IDS["F10"]: self.on_cycle_target,
@@ -280,6 +313,220 @@ class OverlayApp:
             self.status = "显示标注"
             self._redraw()
 
+    def on_clear_lock(self) -> None:
+        """F6：清除台面锁定，恢复每次自动检测。"""
+        self.felt_lock = None
+        self.calib = False
+        self.click_through = True
+        if self.hwnd:
+            set_click_through(self.hwnd, True)
+        try:
+            if FELT_LOCK_PATH.exists():
+                FELT_LOCK_PATH.unlink()
+        except Exception:
+            pass
+        self.status = "已清除台面锁定，恢复自动检测"
+        self._redraw()
+
+    def on_calibrate(self) -> None:
+        """F7：进入/确认台面校准。确认后本盘内不再改台面大小。"""
+        if not self.calib:
+            # 进入校准：先截一帧，用当前 felt 或自动检测初始化矩形
+            self.calib = True
+            self.click_through = False
+            if self.hwnd:
+                set_click_through(self.hwnd, False)
+            try:
+                img, _ = grab_game_window()
+                self._img_size = (img.shape[1], img.shape[0])
+                felt = None
+                if self.felt_lock is not None:
+                    felt = self._felt_from_lock(img.shape[1], img.shape[0])
+                if felt is None:
+                    from detect import detect_felt
+
+                    felt = detect_felt(img)
+                if felt is None:
+                    w, h = img.shape[1], img.shape[0]
+                    felt = (int(w * 0.12), int(h * 0.18), int(w * 0.76), int(h * 0.64))
+                self.calib_rect = [float(v) for v in felt]
+            except Exception as e:
+                self.status = f"校准截图失败: {e}"
+                self.calib = False
+                self.click_through = True
+                if self.hwnd:
+                    set_click_through(self.hwnd, True)
+                return
+            self.status = "校准中：拖四边或方向键微调；再按 F7 确认锁定"
+            self._redraw()
+        else:
+            # 确认锁定
+            self._save_felt_lock()
+            self.calib = False
+            self.click_through = True
+            if self.hwnd:
+                set_click_through(self.hwnd, True)
+            self.status = "台面已锁定（本盘内 F8/F9 不再改台面）；F6 可清除"
+            self._redraw()
+
+    def _load_felt_lock(self) -> None:
+        try:
+            if FELT_LOCK_PATH.exists():
+                data = json.loads(FELT_LOCK_PATH.read_text(encoding="utf-8"))
+                rel = data.get("rel")
+                if rel and len(rel) == 4:
+                    self.felt_lock = tuple(float(v) for v in rel)
+        except Exception:
+            self.felt_lock = None
+
+    def _save_felt_lock(self) -> None:
+        W, H = self._img_size
+        if W <= 0 or H <= 0:
+            return
+        x, y, w, h = self.calib_rect
+        rel = (x / W, y / H, w / W, h / H)
+        self.felt_lock = rel
+        try:
+            FELT_LOCK_PATH.parent.mkdir(exist_ok=True)
+            FELT_LOCK_PATH.write_text(
+                json.dumps({"rel": list(rel), "img_w": W, "img_h": H}, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            print(f"[warn] 保存 felt_lock 失败: {e}")
+
+    def _felt_from_lock(self, W: int, H: int) -> tuple[int, int, int, int] | None:
+        if not self.felt_lock:
+            return None
+        rx, ry, rw, rh = self.felt_lock
+        return (int(rx * W), int(ry * H), int(rw * W), int(rh * H))
+
+    def nudge_edge(self, which: str, delta: float) -> None:
+        if not self.calib:
+            return
+        x, y, w, h = self.calib_rect
+        if which == "left":
+            x2 = x + delta
+            w2 = w - delta
+            if w2 > 30:
+                self.calib_rect = [x2, y, w2, h]
+        elif which == "right":
+            if w + delta > 30:
+                self.calib_rect = [x, y, w + delta, h]
+        elif which == "top":
+            y2 = y + delta
+            h2 = h - delta
+            if h2 > 20:
+                self.calib_rect = [x, y2, w, h2]
+        elif which == "bottom":
+            if h + delta > 20:
+                self.calib_rect = [x, y, w, h + delta]
+        self._redraw()
+
+    def _edge_at(self, ex: float, ey: float) -> str | None:
+        x, y, w, h = self.calib_rect
+        tol = 18
+        near = []
+        if abs(ex - x) < tol and y - tol <= ey <= y + h + tol:
+            near.append("left")
+        if abs(ex - (x + w)) < tol and y - tol <= ey <= y + h + tol:
+            near.append("right")
+        if abs(ey - y) < tol and x - tol <= ex <= x + w + tol:
+            near.append("top")
+        if abs(ey - (y + h)) < tol and x - tol <= ex <= x + w + tol:
+            near.append("bottom")
+        if not near:
+            return None
+        # 取最近的
+        def d(e):
+            x, y, w, h = self.calib_rect
+            return {
+                "left": abs(ex - x),
+                "right": abs(ex - (x + w)),
+                "top": abs(ey - y),
+                "bottom": abs(ey - (y + h)),
+            }[e]
+
+        return min(near, key=d)
+
+    def _on_press(self, event) -> None:
+        if not self.calib:
+            return
+        # 底部按钮
+        bh = 36
+        by = max(0, self.root.winfo_height() - bh)
+        if event.y >= by:
+            bw = 52
+            step = 4
+            btns = [
+                ("左-", lambda: self.nudge_edge("left", -step)),
+                ("左+", lambda: self.nudge_edge("left", step)),
+                ("右-", lambda: self.nudge_edge("right", -step)),
+                ("右+", lambda: self.nudge_edge("right", step)),
+                ("上-", lambda: self.nudge_edge("top", -step)),
+                ("上+", lambda: self.nudge_edge("top", step)),
+                ("下-", lambda: self.nudge_edge("bottom", -step)),
+                ("下+", lambda: self.nudge_edge("bottom", step)),
+                ("确认", self.on_calibrate),
+            ]
+            for i, (label, fn) in enumerate(btns):
+                bx = 8 + i * (bw + 4)
+                if bx <= event.x <= bx + bw:
+                    fn()
+                    return
+            return
+        self._drag_edge = self._edge_at(event.x, event.y)
+
+    def _on_drag(self, event) -> None:
+        if not self.calib or not self._drag_edge:
+            return
+        x, y, w, h = self.calib_rect
+        if self._drag_edge == "left":
+            nx = min(max(0, event.x), x + w - 30)
+            self.calib_rect = [nx, y, x + w - nx, h]
+        elif self._drag_edge == "right":
+            nw = max(30, event.x - x)
+            self.calib_rect = [x, y, nw, h]
+        elif self._drag_edge == "top":
+            ny = min(max(0, event.y), y + h - 20)
+            self.calib_rect = [x, ny, w, y + h - ny]
+        elif self._drag_edge == "bottom":
+            nh = max(20, event.y - y)
+            self.calib_rect = [x, y, w, nh]
+        self._redraw()
+
+    def _on_release(self, _event) -> None:
+        self._drag_edge = None
+
+    def _on_click(self, event) -> None:
+        """校准模式下点击按钮。"""
+        if not self.calib:
+            return
+        # 按钮条在底部
+        bh = 36
+        by = max(0, self.root.winfo_height() - bh)
+        if event.y < by:
+            return
+        x, y, w, h = self.calib_rect
+        step = 4
+        bw = 52
+        btns = [
+            ("左-", lambda: self.nudge_edge("left", -step)),
+            ("左+", lambda: self.nudge_edge("left", step)),
+            ("右-", lambda: self.nudge_edge("right", -step)),
+            ("右+", lambda: self.nudge_edge("right", step)),
+            ("上-", lambda: self.nudge_edge("top", -step)),
+            ("上+", lambda: self.nudge_edge("top", step)),
+            ("下-", lambda: self.nudge_edge("bottom", -step)),
+            ("下+", lambda: self.nudge_edge("bottom", step)),
+            ("确认", self.on_calibrate),
+        ]
+        for i, (label, fn) in enumerate(btns):
+            bx = 8 + i * (bw + 4)
+            if bx <= event.x <= bx + bw:
+                fn()
+                return
+
     def _run(self) -> None:
         try:
             img, meta = grab_game_window()
@@ -287,11 +534,22 @@ class OverlayApp:
             self.status = f"截图失败: {e}"
             self._draw_status()
             return
-        self.status = f"分析中… [{meta.get('method','')}] 目标={self.target_color} 模式={self.mode}"
+        self._img_size = (img.shape[1], img.shape[0])
+        felt_ov = self._felt_from_lock(img.shape[1], img.shape[0])
+        lock_note = "台面锁定" if felt_ov else "台面自动"
+        self.status = (
+            f"分析中… [{meta.get('method','')}] {lock_note} 目标={self.target_color} 模式={self.mode}"
+        )
         self._draw_status()
         self.root.update()
         try:
-            result = analyze(img, target_color=self.target_color, mode=self.mode, max_cushions=2)
+            result = analyze(
+                img,
+                target_color=self.target_color,
+                mode=self.mode,
+                max_cushions=2,
+                felt_override=felt_ov,
+            )
         except Exception as e:
             self.status = f"分析失败: {e}"
             self.last_result = None
@@ -309,6 +567,10 @@ class OverlayApp:
 
     def _redraw(self) -> None:
         self.canvas.delete("all")
+        if self.calib:
+            self._draw_calib()
+            self._draw_status()
+            return
         if not self.show:
             self._draw_status()
             return
@@ -318,18 +580,15 @@ class OverlayApp:
             return
 
         fx, fy, fw, fh = r.state.felt_rect
-        # 悬浮窗坐标 = 游戏窗口客户区原点；截图坐标与之对应
-        # grab 的图像原点是窗口区域，felt_rect 是图像内坐标，可直接映射
         ox, oy = 0, 0
 
         def to_xy(nx, ny):
             return (ox + fx + nx * fw, oy + fy + ny * fh)
 
-        # 台面框（细）
         self.canvas.create_rectangle(fx, fy, fx + fw, fy + fh, outline="#00C8C8", width=1)
 
-        # 口袋
-        pr = max(8, int(fh * 0.036))
+        # 袋口：半径可在 config.POCKET_DRAW_RADIUS_RATIO 调
+        pr = max(8, int(fh * POCKET_DRAW_RADIUS_RATIO))
         for p in r.state.pockets:
             x, y = to_xy(p[0], p[1])
             self.canvas.create_oval(x - pr, y - pr, x + pr, y + pr, outline="#FF8C00", width=2)
@@ -370,6 +629,41 @@ class OverlayApp:
             )
 
         self._draw_status()
+
+    def _draw_calib(self) -> None:
+        x, y, w, h = self.calib_rect
+        self.canvas.create_rectangle(x, y, x + w, y + h, outline="#00FF88", width=3)
+        # 边中点手柄
+        handles = [
+            (x, y + h / 2),
+            (x + w, y + h / 2),
+            (x + w / 2, y),
+            (x + w / 2, y + h),
+        ]
+        for hx, hy in handles:
+            self.canvas.create_rectangle(hx - 8, hy - 8, hx + 8, hy + 8, fill="#00FF88", outline="")
+        # 袋口预览（按最终矩形生成）
+        pr = max(8, int(h * POCKET_DRAW_RADIUS_RATIO))
+        for nx, ny in ((0, 0), (0.5, 0), (1, 0), (0, 1), (0.5, 1), (1, 1)):
+            px, py = x + nx * w, y + ny * h
+            self.canvas.create_oval(px - pr, py - pr, px + pr, py + pr, outline="#FF8C00", width=2)
+        # 按钮
+        bh = 36
+        by = max(0, self.root.winfo_height() - bh)
+        self.canvas.create_rectangle(0, by, self.root.winfo_width(), by + bh, fill="#202020", outline="")
+        labels = ["左-", "左+", "右-", "右+", "上-", "上+", "下-", "下+", "确认"]
+        bw = 52
+        for i, lab in enumerate(labels):
+            bx = 8 + i * (bw + 4)
+            self.canvas.create_rectangle(bx, by + 4, bx + bw, by + bh - 4, fill="#404040", outline="#888")
+            self.canvas.create_text(bx + bw / 2, by + bh / 2, text=lab, fill="#FFF", font=("Segoe UI", 10))
+        self.canvas.create_text(
+            x + w / 2,
+            max(16, y - 14),
+            text="拖动四边 / 点按钮微调 / F7确认 / F6清除锁定",
+            fill="#00FF88",
+            font=("Segoe UI", 11),
+        )
 
     def _draw_status(self) -> None:
         # 半透明感：用深色底条

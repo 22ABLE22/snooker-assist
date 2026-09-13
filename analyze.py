@@ -62,11 +62,13 @@ def analyze(
     mode: str = "escape",
     max_plans: int = 8,
     max_cushions: int | None = None,
+    felt_override: tuple[int, int, int, int] | None = None,
 ) -> AnalysisResult:
     """mode: escape(解球碰目标) | pot(进球) | both
     target_color: None 则自动选（优先红）
+    felt_override: 锁定台面矩形后传入，不再自动测台面
     """
-    state = analyze_frame(img_bgr)
+    state = analyze_frame(img_bgr, felt_override=felt_override)
     if not state.ok():
         set_table_aspect(None)
         return AnalysisResult(
