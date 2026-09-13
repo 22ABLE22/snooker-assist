@@ -933,24 +933,40 @@ def build_pockets(felt: tuple[int, int, int, int]) -> list[tuple[float, float]]:
     ]
 
 
-def analyze_frame(img_bgr: np.ndarray) -> TableState:
-    felt = detect_felt(img_bgr)
+def analyze_frame(
+    img_bgr: np.ndarray,
+    felt_override: tuple[int, int, int, int] | None = None,
+) -> TableState:
+    """felt_override: 已锁定的台面矩形 (x,y,w,h)，锁定后不再自动检测台面大小。"""
     h, w = img_bgr.shape[:2]
+    if felt_override is not None:
+        fx, fy, fw, fh = (int(v) for v in felt_override)
+        fx = max(0, min(fx, w - 20))
+        fy = max(0, min(fy, h - 20))
+        fw = max(20, min(fw, w - fx))
+        fh = max(20, min(fh, h - fy))
+        felt = (fx, fy, fw, fh)
+    else:
+        felt = detect_felt(img_bgr)
     if felt is None:
-        # 标记失败：felt_rect 全 0
-        return TableState(width=w, height=h, felt_rect=(0, 0, 0, 0), balls=[], pockets=[], error="未检测到台呢，请确认截图为俯视球台")
+        return TableState(
+            width=w,
+            height=h,
+            felt_rect=(0, 0, 0, 0),
+            balls=[],
+            pockets=[],
+            error="未检测到台呢，请确认截图为俯视球台或手动校准台面",
+        )
     balls = detect_balls_in_felt(img_bgr, felt)
-    # 合理球数过滤：斯诺克最多 22 颗，检测过多视为误检
     if len(balls) > 30:
         balls = sorted(balls, key=lambda b: -b.score)[:30]
-    state = TableState(
+    return TableState(
         width=w,
         height=h,
         felt_rect=felt,
         balls=balls,
         pockets=build_pockets(felt),
     )
-    return state
 
 
 def draw_detection_preview(img_bgr: np.ndarray, state: TableState) -> np.ndarray:
