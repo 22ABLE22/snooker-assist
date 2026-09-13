@@ -7,6 +7,10 @@ __pycache__/
 venv/
 .env
 
+# 本地笔记（不上传）
+todo.md
+done.md
+
 # 系统
 .DS_Store
 Thumbs.db
