@@ -37,14 +37,16 @@ if str(ROOT) not in sys.path:
 from analyze import AnalysisResult, analyze  # noqa: E402
 from capture import find_window_rect, grab_game_window  # noqa: E402
 from config import POCKET_DRAW_RADIUS_RATIO, TARGET_COLORS  # noqa: E402
+from guide import detect_aim_line_window  # noqa: E402
 
 # ---------- Win32 热键（线程队列 hwnd=0，更可靠）----------
 
 user32 = ctypes.windll.user32
 WM_HOTKEY = 0x0312
 MOD_NOREPEAT = 0x4000
-VK_F6, VK_F7, VK_F8, VK_F9, VK_F10, VK_F11, VK_F12 = 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B
+VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_F10, VK_F11, VK_F12 = 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B
 HOTKEY_IDS = {
+    "F5": 105,
     "F6": 106,
     "F7": 107,
     "F8": 108,
@@ -77,6 +79,7 @@ def register_hotkeys() -> dict[str, bool]:
     """注册全局热键到当前线程（hwnd=0）。返回各键是否成功。"""
     mods = MOD_NOREPEAT
     mapping = [
+        ("F5", HOTKEY_IDS["F5"], VK_F5),
         ("F6", HOTKEY_IDS["F6"], VK_F6),
         ("F7", HOTKEY_IDS["F7"], VK_F7),
         ("F8", HOTKEY_IDS["F8"], VK_F8),
@@ -159,15 +162,19 @@ class OverlayApp:
         self.mode = "escape"  # escape | pot
         self.show = True
         self.last_result: AnalysisResult | None = None
-        self.status = "F7校准台面 F8解球 F9进球 F10换目标 F11显隐 F6清锁定"
+        self.status = "F9进球+延长线 F8分析 F7校准 F6清锁定 F5显隐延长线 F10换目标"
         self.click_through = True
-        # 台面锁定：rel=(x/W,y/H,w/W,h/H) 或 None=每次自动检测
         self.felt_lock: tuple[float, float, float, float] | None = None
         self.calib = False
-        self.calib_rect: list[float] = [0.1, 0.1, 0.8, 0.8]  # x,y,w,h 像素
+        self.calib_rect: list[float] = [0.1, 0.1, 0.8, 0.8]
         self._drag_edge: str | None = None
         self._img_size = (1, 1)
         self._load_felt_lock()
+        # 延长线：仅在 F8/F9 分析时截一帧绘制（默认显示）
+        self.live_guide = True
+        self.guide_pts: list[tuple[float, float]] | None = None
+        self._guide_busy = False
+        self._last_felt: tuple[int, int, int, int] | None = None
 
         self.root = tk.Tk()
         self.root.title("Snooker Overlay")
@@ -201,6 +208,7 @@ class OverlayApp:
             import keyboard as kb  # type: ignore
 
             self._kb = kb
+            kb.add_hotkey("f5", lambda: self.root.after(0, self.on_toggle_guide))
             kb.add_hotkey("f6", lambda: self.root.after(0, self.on_clear_lock))
             kb.add_hotkey("f7", lambda: self.root.after(0, self.on_calibrate))
             kb.add_hotkey("f8", lambda: self.root.after(0, self.on_escape))
@@ -213,6 +221,7 @@ class OverlayApp:
             print(f"[hotkey] keyboard 库不可用: {e}")
 
         for key, fn in (
+            ("<F5>", self.on_toggle_guide),
             ("<F6>", self.on_clear_lock),
             ("<F7>", self.on_calibrate),
             ("<F8>", self.on_escape),
@@ -269,6 +278,7 @@ class OverlayApp:
     def _tick(self) -> None:
         pump_hotkeys(
             {
+                HOTKEY_IDS["F5"]: self.on_toggle_guide,
                 HOTKEY_IDS["F6"]: self.on_clear_lock,
                 HOTKEY_IDS["F7"]: self.on_calibrate,
                 HOTKEY_IDS["F8"]: self.on_escape,
@@ -289,7 +299,21 @@ class OverlayApp:
                     self.grect = info
                 except Exception:
                     pass
-        self.root.after(40, self._tick)
+        # 不再后台实时抓帧（避免刷屏与抢热键）；延长线在 _run 里随 F8/F9 计算
+        self.root.after(80, self._tick)
+
+    def on_toggle_guide(self) -> None:
+        """F5：显示/隐藏最近一次分析得到的延长线（不会自动循环截图）。"""
+        self.live_guide = not self.live_guide
+        if not self.live_guide:
+            self.status = "延长线显示：关（F5 开）；按 F8/F9 会重新检测"
+        else:
+            self.status = "延长线显示：开；按 F9 在分析时一并画延长线"
+        self._redraw()
+
+    def _update_guide(self) -> None:
+        """兼容旧入口：与 _run 共用，不再由 _tick 调用。"""
+        self._run()
 
     def on_escape(self) -> None:
         # F8：优先找进球，没有再给解球
@@ -559,12 +583,25 @@ class OverlayApp:
             self._redraw()
             return
         self.last_result = result
+        if result.state.ok():
+            self._last_felt = result.state.felt_rect
+            # 本帧延长线：与分析同一张图，不另开循环
+            try:
+                cue = None
+                if result.cue:
+                    fx, fy, fw, fh = result.state.felt_rect
+                    cue = (fx + result.cue[0] * fw, fy + result.cue[1] * fh)
+                pts = detect_aim_line_window(img, result.state.felt_rect, cue=cue)
+                self.guide_pts = pts if pts and len(pts) >= 2 else None
+            except Exception:
+                self.guide_pts = None
         n = len(result.plans)
         best = result.plans[0] if result.plans else None
         cush = "-".join(best.cushions) if best and best.cushions else (best.kind if best else "-")
         sc = f"{best.score:.0f}" if best is not None else "-"
+        gnote = "延长线OK" if self.guide_pts else "无延长线"
         self.status = (
-            f"{result.message} | 首选:{cush} 分{sc} | 目标={self.target_color}"
+            f"{result.message} | 首选:{cush} 分{sc} | {gnote} | 目标={self.target_color}"
         )
         self._redraw()
 
@@ -574,6 +611,13 @@ class OverlayApp:
             self._draw_calib()
             self._draw_status()
             return
+
+        # F8/F9 分析时得到的延长线（F5 可隐藏）
+        if self.live_guide and self.guide_pts and len(self.guide_pts) >= 2:
+            a, b = self.guide_pts[0], self.guide_pts[1]
+            self.canvas.create_line(a[0], a[1], b[0], b[1], fill="#FFE040", width=3)
+            self.canvas.create_oval(a[0] - 5, a[1] - 5, a[0] + 5, a[1] + 5, outline="#FFE040", width=2)
+
         if not self.show:
             self._draw_status()
             return
@@ -698,9 +742,12 @@ class OverlayApp:
 
     def run(self) -> None:
         print("悬浮窗已启动")
+        print("  F9 进球分析（同时画出游戏瞄准延长线）")
+        print("  F8 解球/进球综合分析")
+        print("  F5 显示/隐藏最近延长线")
         print("  F6 清台面锁定  F7 校准/锁定台面")
-        print("  F8 解球  F9 进球  F10 切换目标  F11 显隐  F12/Esc 退出")
-        print("  鼠标默认穿透；校准中可拖四边或点底部按钮")
+        print("  F10 切换目标  F11 显隐  F12/Esc 退出")
+        print("  不再后台实时抓帧；按 F8/F9 时截一帧并标注")
         self.root.mainloop()
 
 

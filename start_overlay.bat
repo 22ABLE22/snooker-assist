@@ -9,13 +9,15 @@ echo ============================================
 echo  Snooker Assist Overlay
 echo ============================================
 echo  Hotkeys:
+echo    F5  Show / hide last aim-line extension
 echo    F6  Clear felt lock (auto detect)
 echo    F7  Calibrate felt: drag edges or buttons, F7 to lock
-echo    F8  Analyze (pot first, then escape)
-echo    F9  Pot lines only
+echo    F8  Analyze escape/pot (one snapshot + aim line)
+echo    F9  Pot lines + aim extension line (one snapshot)
 echo    F10 Cycle target color
 echo    F11 Show / hide overlay
 echo    Esc Quit
+echo  No background loop: aim line is drawn when you press F8/F9
 echo  After F7 lock, F8/F9 will not resize the table
 echo ============================================
 echo.
