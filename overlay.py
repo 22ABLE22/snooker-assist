@@ -11,7 +11,7 @@
   F9  —— 截图分析进球线路
   F10 —— 切换目标球颜色
   F11 —— 显示/隐藏标注
-  F12 / Esc —— 退出
+  Esc —— 退出
 
 说明:
   - 悬浮窗覆盖在「腾讯桌球」窗口上，半透明显示路径，默认鼠标穿透
@@ -43,7 +43,7 @@ from config import POCKET_DRAW_RADIUS_RATIO, TARGET_COLORS  # noqa: E402
 user32 = ctypes.windll.user32
 WM_HOTKEY = 0x0312
 MOD_NOREPEAT = 0x4000
-VK_F6, VK_F7, VK_F8, VK_F9, VK_F10, VK_F11, VK_F12 = 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B
+VK_F6, VK_F7, VK_F8, VK_F9, VK_F10, VK_F11 = 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A
 HOTKEY_IDS = {
     "F6": 106,
     "F7": 107,
@@ -51,7 +51,6 @@ HOTKEY_IDS = {
     "F9": 109,
     "F10": 110,
     "F11": 111,
-    "F12": 112,
 }
 FELT_LOCK_PATH = ROOT / "output" / "felt_lock.json"
 # 委托在 RegisterHotKey 的线程上，消息进线程队列
@@ -83,7 +82,6 @@ def register_hotkeys() -> dict[str, bool]:
         ("F9", HOTKEY_IDS["F9"], VK_F9),
         ("F10", HOTKEY_IDS["F10"], VK_F10),
         ("F11", HOTKEY_IDS["F11"], VK_F11),
-        ("F12", HOTKEY_IDS["F12"], VK_F12),
     ]
     ok: dict[str, bool] = {}
     for name, hid, vk in mapping:
@@ -219,7 +217,6 @@ class OverlayApp:
             ("<F9>", self.on_pot),
             ("<F10>", self.on_cycle_target),
             ("<F11>", self.on_toggle),
-            ("<F12>", self.quit),
             ("<Escape>", self.quit),
             ("<Left>", lambda: self.nudge_edge("left", -2)),
             ("<Right>", lambda: self.nudge_edge("left", 2)),
@@ -275,7 +272,6 @@ class OverlayApp:
                 HOTKEY_IDS["F9"]: self.on_pot,
                 HOTKEY_IDS["F10"]: self.on_cycle_target,
                 HOTKEY_IDS["F11"]: self.on_toggle,
-                HOTKEY_IDS["F12"]: self.quit,
             }
         )
         # 跟随游戏窗口移动
@@ -699,7 +695,7 @@ class OverlayApp:
     def run(self) -> None:
         print("悬浮窗已启动")
         print("  F6 清台面锁定  F7 校准/锁定台面")
-        print("  F8 解球  F9 进球  F10 切换目标  F11 显隐  F12/Esc 退出")
+        print("  F8 解球  F9 进球  F10 切换目标  F11 显隐  Esc 退出")
         print("  鼠标默认穿透；校准中可拖四边或点底部按钮")
         self.root.mainloop()
 
