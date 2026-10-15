@@ -9,7 +9,14 @@ import cv2
 import numpy as np
 
 from config import BALL_RADIUS_PX, BALL_RADIUS_RATIO, POCKET_DRAW_RADIUS_RATIO, TARGET_COLORS
-from detect import Ball, TableState, analyze_frame, draw_detection_preview, get_cloth_name
+from detect import (
+    Ball,
+    TableState,
+    analyze_frame,
+    analyze_frames,
+    draw_detection_preview,
+    get_cloth_name,
+)
 from geometry import (
     PathPlan,
     find_escape_paths_ranked,
@@ -63,12 +70,20 @@ def analyze(
     max_plans: int = 8,
     max_cushions: int | None = None,
     felt_override: tuple[int, int, int, int] | None = None,
+    extra_frames: list | None = None,
 ) -> AnalysisResult:
     """mode: escape(解球碰目标) | pot(进球) | both
     target_color: None 则自动选（优先红）
     felt_override: 锁定台面矩形后传入，不再自动测台面
+    extra_frames: 可选的多帧（含 img_bgr 本身）用于时域融合，
+        剔除瞬时伪检并平滑球心。球局必须静止（未被击球）。
     """
-    state = analyze_frame(img_bgr, felt_override=felt_override)
+    if extra_frames and len(extra_frames) > 1:
+        state = analyze_frames(
+            list(extra_frames), felt_override=felt_override
+        )
+    else:
+        state = analyze_frame(img_bgr, felt_override=felt_override)
     if not state.ok():
         set_table_aspect(None)
         return AnalysisResult(

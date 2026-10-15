@@ -233,6 +233,110 @@ def analyze_frame(
     )
 
 
+def analyze_frames(
+    frames: list,
+    felt_override: tuple[int, int, int, int] | None = None,
+    *,
+    min_votes: int | None = None,
+    tol: float = 8.0,
+) -> TableState:
+    """多帧融合识别 —— 时间换鲁棒性。
+
+    为什么需要它（现有架构的结构性弱点）
+    ------------------------------------
+    `analyze_frame` 是**开环**的：一次截图 → 一次判断。于是
+      * 单帧噪声无法抑制（球心抖 ~0.5px，没有第二次观测去平掉）；
+      * 瞬时干扰无法排除（球杆扫过、瞄准圈、特效只在个别帧出现，
+        实测白球旁的灰色瞄准圈曾被判成粉球）。
+    时间预算 8s、单帧约 1.1s，有充足余量做多次观测。
+
+    做法
+    ----
+      1. 第 1 帧完整识别，取得球半径；
+      2. 后续帧复用该半径（半径是渲染属性、跨帧恒定），跳过半径扫描，
+         单帧耗时从 ~1.1s 降到 ~0.26s；
+      3. 多帧结果按位置聚类投票：≥ min_votes 帧出现的才算球（干掉瞬时伪检）；
+         球心按置信度加权平均（噪声按 √N 衰减）。
+
+    参数
+    ----
+    frames: 图像列表（需保证同一球局，即球未移动）。
+    min_votes: 至少几帧命中；默认 ceil(0.6 × 帧数)，至少 2。
+    tol: 判定同一颗球的位置容差（px）。球局静止，可取较紧。
+    """
+    from fusion import fuse_detections  # 同目录
+
+    imgs = [f for f in frames if f is not None and getattr(f, "size", 0)]
+    if not imgs:
+        return TableState(width=0, height=0, felt_rect=(0, 0, 0, 0), error="没有可用帧")
+
+    h, w = imgs[0].shape[:2]
+    if len(imgs) == 1:
+        return analyze_frame(imgs[0], felt_override=felt_override)
+
+    # 台面：各帧一致，用第 1 帧定下来即可
+    if felt_override is not None:
+        felt_img = tuple(int(v) for v in felt_override)
+    else:
+        felt_img = detect_felt(imgs[0])
+        if felt_img is None:
+            return TableState(
+                width=w, height=h, felt_rect=(0, 0, 0, 0), balls=[], pockets=[],
+                error="未检测到台呢",
+            )
+
+    per_frame: list[list[dict]] = []
+    pockets_norm: list[tuple[float, float]] | None = None
+    r_cache: float | None = None
+    fx, fy = felt_img[0], felt_img[1]
+
+    for i, img in enumerate(imgs):
+        debug: dict = {}
+        st2 = _d2.analyze_frame2(
+            img, felt_override=felt_img, exp_r=r_cache, debug=debug
+        )
+        if not st2.ok():
+            per_frame.append([])
+            continue
+        cx0, cy0 = st2.crop_rect[0], st2.crop_rect[1]
+        dets = []
+        for b in st2.balls:
+            ix, iy = b.x + cx0, b.y + cy0
+            dets.append(
+                {
+                    "x": float(ix - fx),
+                    "y": float(iy - fy),
+                    "r": float(b.r),
+                    "color": b.color,
+                    "conf": float(b.conf),
+                }
+            )
+        per_frame.append(dets)
+        if r_cache is None and dets:
+            r_cache = float(np.median([d["r"] for d in dets]))
+        if pockets_norm is None:
+            pockets_norm = _pockets_from_debug(debug, felt_img)
+
+    fused = fuse_detections(per_frame, min_votes=min_votes, tol=tol)
+    balls = [
+        Ball(
+            x=float(d["x"]), y=float(d["y"]), r=float(d["r"]),
+            color=d["color"], score=float(d["conf"]),
+        )
+        for d in fused
+    ]
+
+    if BALL_RADIUS_PX > 0 and balls:
+        for b in balls:
+            b.r = float(BALL_RADIUS_PX)
+    _clamp_balls_into_play_area(balls, felt_img)
+
+    return TableState(
+        width=w, height=h, felt_rect=felt_img, balls=balls,
+        pockets=pockets_norm or build_pockets(felt_img),
+    )
+
+
 def _clamp_balls_into_play_area(balls: list[Ball], felt: tuple[int, int, int, int]) -> None:
     """把球心夹进「球心可及范围」，保证满足 geometry 的镜面前提。
 

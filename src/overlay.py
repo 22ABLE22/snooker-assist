@@ -37,7 +37,7 @@ if str(SRC_DIR) not in sys.path:
 
 from analyze import AnalysisResult, analyze  # noqa: E402
 from capture import find_window_rect, grab_game_window  # noqa: E402
-from config import POCKET_DRAW_RADIUS_RATIO, TARGET_COLORS  # noqa: E402
+from config import FUSION_FRAMES, POCKET_DRAW_RADIUS_RATIO, TARGET_COLORS  # noqa: E402
 
 # ---------- Win32 热键（线程队列 hwnd=0，更可靠）----------
 
@@ -527,9 +527,36 @@ class OverlayApp:
                 fn()
                 return
 
+    def _grab_burst(self, n: int, gap: float = 0.06) -> tuple[np.ndarray, dict, list]:
+        """连拍 n 帧并返回 (首帧, meta, 全部帧)。
+
+        为什么连拍：单帧是开环判断，球杆扫过/瞄准圈/特效都可能造成伪检；
+        多帧投票能在时间维度上把它们剔掉，且球心经平均后更稳。
+        第 1 帧做完整识别拿半径，其余帧复用半径（快约 4 倍）。
+        """
+        import time as _t
+
+        frames: list[np.ndarray] = []
+        meta: dict = {}
+        first, meta = grab_game_window()
+        frames.append(first)
+        for _ in range(max(0, n - 1)):
+            _t.sleep(gap)
+            try:
+                im, mt = grab_game_window()
+            except Exception:
+                break
+            if im is None or im.shape != first.shape:
+                break
+            frames.append(im)
+            meta = mt or meta
+        return first, meta, frames
+
     def _run(self) -> None:
+        # FUSION_FRAMES 帧：1 帧=纯单帧（旧行为），>1 帧=时域融合
+        n_frames = max(1, int(FUSION_FRAMES))
         try:
-            img, meta = grab_game_window()
+            img, meta, frames = self._grab_burst(n_frames)
         except Exception as e:
             self.status = f"截图失败: {e}"
             self._draw_status()
@@ -537,8 +564,10 @@ class OverlayApp:
         self._img_size = (img.shape[1], img.shape[0])
         felt_ov = self._felt_from_lock(img.shape[1], img.shape[0])
         lock_note = "台面锁定" if felt_ov else "台面自动"
+        fuse_note = f"融合{len(frames)}帧" if len(frames) > 1 else "单帧"
         self.status = (
-            f"分析中… [{meta.get('method','')}] {lock_note} 目标={self.target_color} 模式={self.mode}"
+            f"分析中… [{meta.get('method','')}] {lock_note} {fuse_note} "
+            f"目标={self.target_color} 模式={self.mode}"
         )
         self._draw_status()
         self.root.update()
@@ -549,6 +578,7 @@ class OverlayApp:
                 mode=self.mode,
                 max_cushions=2,
                 felt_override=felt_ov,
+                extra_frames=frames if len(frames) > 1 else None,
             )
         except Exception as e:
             self.status = f"分析失败: {e}"
@@ -561,7 +591,7 @@ class OverlayApp:
         cush = "-".join(best.cushions) if best and best.cushions else (best.kind if best else "-")
         sc = f"{best.score:.0f}" if best is not None else "-"
         self.status = (
-            f"{result.message} | 首选:{cush} 分{sc} | 目标={self.target_color}"
+            f"{result.message} | 首选:{cush} 分{sc} | {fuse_note} | 目标={self.target_color}"
         )
         self._redraw()
 
