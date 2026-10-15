@@ -328,67 +328,64 @@ def refine_radius_by_distance_transform(
 def estimate_radius(
     d: np.ndarray, felt_h: int, crop_bgr: np.ndarray | None = None
 ) -> tuple[float, dict]:
-    """用数据自身估计统一球半径（粗到精，兼顾速度与精度）。
+    """用数据自身估计统一球半径（全分辨率扫描 + 子像素抛物线插值）。
 
     判据：正确半径下，圆盘-环形匹配滤波会让「最亮的一批峰」集体达到最强。
     实测 r=18 处 p99.9 与 top-20 峰值和同时见顶（真球 r_eq≈18.7），
     而 gain/p99 之类相对判据会被台呢纹理噪声带偏，故弃用。
 
-    性能：全分辨率逐半径扫描约 720ms，是整条流水线的瓶颈。
-    改为**半分辨率粗扫 + 全分辨率精修**：粗扫把候选缩到 3 个，
-    精修只需 3 次全分辨率滤波，总耗时降到约 1/5，结果与全扫一致。
+    精度说明：
+      早前为压时间用过「1/4 分辨率粗扫 + 少数候选精修」，
+      但粗扫峰值位置会因缩放而偏移，可能选错候选。
+      现时间预算放宽（单次 ≤8s），改为**全分辨率逐半径扫描**，
+      再对峰值做抛物线插值取得子像素半径 —— 半径直接影响幽灵球落点、
+      库边内移量与走廊宽度，值得这点开销。
 
-    crop_bgr 给定时，粗扫阶段额外纳入联合图（颜色×明暗），
+    crop_bgr 给定时，扫描阶段额外纳入联合图（颜色×明暗），
     使「与台呢同色的球」也参与判据。
     """
     lo = max(4, int(felt_h * 0.010))
     hi = max(lo + 2, int(felt_h * 0.045))
     info: dict = {"range": [lo, hi], "scan": []}
 
-    # ---- 粗扫：1/4 分辨率 ----
-    # 半径判据只需要「哪个半径附近最强」，1/4 分辨率足够定位峰值位置；
-    # 精度由随后的全分辨率精修保证。1/4 比 1/2 又快约 3 倍。
-    small = cv2.resize(d, (max(8, d.shape[1] // 4), max(8, d.shape[0] // 4)),
-                       interpolation=cv2.INTER_AREA)
-    small_bgr = None
-    if crop_bgr is not None:
-        small_bgr = cv2.resize(crop_bgr, (small.shape[1], small.shape[0]),
-                               interpolation=cv2.INTER_AREA)
-    r_lo = max(2, lo // 4)
-    r_hi = max(r_lo + 1, hi // 4)
     scored: list[tuple[float, int]] = []
-    for rs in range(r_lo, r_hi + 1):
-        if small_bgr is not None:
-            s = joint_score(blob_score(small, float(rs)),
-                            brightness_std_map(small_bgr, float(rs)))
+    for r in range(lo, hi + 1):
+        if crop_bgr is not None:
+            s = joint_score(blob_score(d, float(r)),
+                            brightness_std_map(crop_bgr, float(r)))
         else:
-            s = blob_score(small, float(rs))
-        p999 = float(np.percentile(s, 99.9))
-        top20 = float(np.sort(s.reshape(-1))[::-1][:20].sum())
-        scored.append((top20 + p999 * 20.0, rs))
-    scored.sort(key=lambda t: -t[0])
-    # 取粗扫前 2 名，映射回全分辨率候选半径（±2 覆盖 4 倍缩放的量化误差）
-    cands: list[int] = []
-    for _v, rs in scored[:2]:
-        for rf in range(rs * 4 - 2, rs * 4 + 3):
-            if lo <= rf <= hi and rf not in cands:
-                cands.append(rf)
-
-    # ---- 精修：全分辨率，只测少量候选 ----
-    best_r, best_val = float(cands[0]), -1.0
-    for r in cands:
-        s = blob_score(d, float(r))
+            s = blob_score(d, float(r))
         p999 = float(np.percentile(s, 99.9))
         top20 = float(np.sort(s.reshape(-1))[::-1][:20].sum())
         val = top20 + p999 * 20.0
+        scored.append((val, r))
         info["scan"].append({"r": r, "p999": round(p999, 2), "top20": round(top20, 1)})
-        if val > best_val:
-            best_val, best_r = val, float(r)
 
-    info["scan"].sort(key=lambda row: row["r"])
-    info["best_r"] = best_r
-    info["best_val"] = round(best_val, 1)
-    return best_r, info
+    scored.sort(key=lambda t: -t[0])
+    best_val, best_r = scored[0]
+
+    # 子像素精修：对峰值及其左右邻做抛物线插值
+    #   y = a(x-x0)^2 + c  ->  x0 = (y_-1 - y_+1) / (2*(y_-1 - 2*y_0 + y_+1))
+    by_r = {r: v for v, r in scored}
+    if (best_r - 1) in by_r and (best_r + 1) in by_r:
+        ym = by_r[best_r - 1]
+        y0 = by_r[best_r]
+        yp = by_r[best_r + 1]
+        denom = ym - 2.0 * y0 + yp
+        if abs(denom) > 1e-9:
+            delta = 0.5 * (ym - yp) / denom
+            # 限制在 ±0.5 内，避免整条曲线单调时外推
+            delta = float(np.clip(delta, -0.5, 0.5))
+            info["subpixel_delta"] = round(delta, 4)
+            best_r = float(best_r) + delta
+        else:
+            info["subpixel_delta"] = 0.0
+    else:
+        info["subpixel_delta"] = 0.0
+
+    info["best_r"] = float(best_r)
+    info["best_val"] = round(float(best_val), 1)
+    return float(best_r), info
 
 
 def _local_maxima(img: np.ndarray, min_sep: float, min_val: float) -> list[tuple[int, int, float]]:
@@ -482,11 +479,73 @@ def classify_lab(lab_med: np.ndarray, felt_lab: np.ndarray | None = None) -> tup
 POCKET_POS = ((0.0, 0.0), (0.5, 0.0), (1.0, 0.0), (0.0, 1.0), (0.5, 1.0), (1.0, 1.0))
 
 
-def detect_pocket_centers(crop_bgr: np.ndarray) -> list[tuple[float, float]]:
-    """在 6 个预期袋位附近搜索暗洞，返回实测袋口中心（裁剪坐标）。
+def detect_pocket_centers_region(
+    img_bgr: np.ndarray,
+    felt_rect: tuple[int, int, int, int],
+    win_ratio: float = 0.085,
+) -> list[tuple[float, float]]:
+    """在**整图**上围绕比赛区搜索六个袋口暗洞，返回**图像坐标**。
 
-    必须实测而非用 felt 矩形角：实测袋心相对矩形角内缩约 1.3 个球半径，
-    按矩形角建模会把袋口暗洞漏掉，进而误检成"黑球"。
+    为什么必须在整图上搜（这是本函数存在的唯一理由）：
+      袋口位于库区，其中心通常落在比赛区矩形**之外**。
+      旧实现只在比赛区裁剪图内部搜索，袋洞被窗口边界切掉一部分，
+      剩余部分的质心必然被拉向台面内侧 ——
+      实测偏内约 33px（≈1.7 个球半径，接近一个球直径），
+      而 geometry 完全依赖袋口坐标决定瞄准方向，于是所有线路整体歪掉。
+
+    预期位置取「比赛区四角 + 上下长边中点」，窗口按短边比例给足余量，
+    使袋洞完整落在窗口内。
+    """
+    fx, fy, fw, fh = felt_rect
+    H, W = img_bgr.shape[:2]
+    V = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)[:, :, 2]
+    win = max(20, int(min(fw, fh) * win_ratio))
+    v_lo = float(np.percentile(V, 3))
+    thr = max(45.0, v_lo + 18.0)
+
+    expected = [
+        (fx, fy),
+        (fx + fw / 2.0, fy),
+        (fx + fw, fy),
+        (fx, fy + fh),
+        (fx + fw / 2.0, fy + fh),
+        (fx + fw, fy + fh),
+    ]
+    centers: list[tuple[float, float]] = []
+    for ex, ey in expected:
+        x0 = max(0, int(ex - win))
+        x1 = min(W, int(ex + win) + 1)
+        y0 = max(0, int(ey - win))
+        y1 = min(H, int(ey + win) + 1)
+        sub = V[y0:y1, x0:x1]
+        if sub.size == 0:
+            centers.append((float(ex), float(ey)))
+            continue
+        m = (sub < thr).astype(np.uint8)
+        m = cv2.morphologyEx(
+            m, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        )
+        n, _lab, stats, cents = cv2.connectedComponentsWithStats(m, connectivity=8)
+        best = None
+        if n > 1:
+            j = max(range(1, n), key=lambda i: int(stats[i, cv2.CC_STAT_AREA]))
+            area = int(stats[j, cv2.CC_STAT_AREA])
+            bw_, bh_ = int(stats[j, cv2.CC_STAT_WIDTH]), int(stats[j, cv2.CC_STAT_HEIGHT])
+            # 袋洞应成块（填充率高），排除库影长条
+            if area >= 60 and area / max(bw_ * bh_, 1) >= 0.45:
+                best = (float(x0 + cents[j][0]), float(y0 + cents[j][1]))
+        if best is None:
+            jj = np.unravel_index(int(np.argmin(sub)), sub.shape)
+            best = (float(x0 + jj[1]), float(y0 + jj[0]))
+        centers.append(best)
+    return centers
+
+
+def detect_pocket_centers(crop_bgr: np.ndarray) -> list[tuple[float, float]]:
+    """在裁剪图内部按归一化位置搜索袋口（**已弃用**，保留仅为兼容旧调用）。
+
+    注意：本函数只能看到裁剪区，袋洞会被切掉一部分导致质心偏内。
+    新代码请用 detect_pocket_centers_region()。
     """
     hsv = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2HSV)
     V = hsv[:, :, 2]
@@ -627,6 +686,7 @@ def detect_balls_v2(
     exp_r: float | None = None,
     score_min: float | None = None,
     play_override: tuple[float, float, float, float] | None = None,
+    pockets_override: list[tuple[float, float]] | None = None,
     debug: dict | None = None,
 ) -> list[Ball2]:
     """斑点检测主流程。不再依赖二值阈值分割球。
@@ -635,13 +695,15 @@ def detect_balls_v2(
         当调用方传进来的矩形**本身就是比赛区**（例如 overlay 锁定的框）时，
         若仍按袋心反推，会因为裁剪内缩而算出一个更小的矩形，
         把贴近原边界的球裁掉（实测丢 2 颗）。
+    pockets_override: 调用方已用**整图**搜好的袋口（crop 坐标系）。
+        优先于内部搜索 —— 内部搜索只能看到裁剪区，袋洞会被切掉一部分。
     """
     if crop_bgr is None or crop_bgr.size == 0:
         return []
     h, w = crop_bgr.shape[:2]
 
     d, lab = response_map(crop_bgr)
-    pockets = detect_pocket_centers(crop_bgr)
+    pockets = list(pockets_override) if pockets_override else detect_pocket_centers(crop_bgr)
     if play_override is not None:
         play_rect = (float(play_override[0]), float(play_override[1]),
                      float(play_override[2]), float(play_override[3]))
@@ -712,7 +774,13 @@ def detect_balls_v2(
 
     balls: list[Ball2] = []
     for px, py, sval in peaks:
-        lab_med, vstd = _inner_stats(lab, vplane, px, py, r_est, frac=0.62)
+        # 颜色采样取球心 30% 半径的小盘，而非 62%：
+        # 游戏在瞄准态会给白球画一个灰色辅助圈，圈压在球体上。
+        # 采样半径一大就把灰圈像素混进来，中位 Lab 被拉向灰色，
+        # 实测会把白球判成粉球（conf 0.36），而小盘采样判定正确（conf 0.99）。
+        # 实测全部真实球在 0.30 与 0.62 下判定一致，且绿球置信度反而更高
+        # （0.85 vs 0.62），故取小盘无副作用。
+        lab_med, vstd = _inner_stats(lab, vplane, px, py, r_est, frac=0.30)
         if lab_med is None:
             continue
         # ── 门限一：盘内非台呢覆盖率 ──
@@ -740,14 +808,23 @@ def detect_balls_v2(
         )
 
     balls = nms(balls, min_dist=max(4.0, r_est * 1.35))
-    balls = reject_border_and_pockets(balls, w, h, r_est, play_rect=play_rect, pockets=pockets)
 
     # ── 半径校正：匹配滤波系统性低估约 10%，用距离变换直接量出真半径 ──
     # 半径偏小会歪掉幽灵球位置/库边内移/走廊宽度，故必须校正。
+    # **必须在袋口排除之前**：排除半径 = 2.2 × r，若用偏小的 r_est，
+    # 排除圈会偏小，袋洞（暗、圆、尺寸接近球）就会被当成黑球留下
+    # （实测合成图漏出 3 个袋口伪球）。
     r_dt, r_samples = refine_radius_by_distance_transform(d, balls, r_est)
     if r_samples:
         for b in balls:
             b.r = float(r_dt)
+        r_use = float(r_dt)
+    else:
+        r_use = float(r_est)
+
+    balls = reject_border_and_pockets(
+        balls, w, h, r_use, play_rect=play_rect, pockets=pockets
+    )
 
     balls.sort(key=lambda b: (b.y, b.x))
 
@@ -851,8 +928,15 @@ def analyze_frame2(
     if crop.size == 0:
         return State2(width=w, height=h, felt_rect=(fx, fy, fw, fh), error="台呢裁剪为空")
 
+    # 袋口：在**整图**上围绕比赛区搜索，避免袋洞被裁剪边界切掉导致质心偏内。
+    # 实测裁剪内搜索会把袋心拉向台面内侧约 23px（叠加坐标系差共 33px），
+    # 而 geometry 完全靠袋口坐标决定瞄准方向，故必须用整图结果。
+    pockets_img = detect_pocket_centers_region(img_bgr, (fx, fy, fw, fh))
+    # 转成 crop 坐标供内部逻辑使用
+    pockets = [(px - cx0, py - cy0) for px, py in pockets_img]
+
     balls = detect_balls_v2(
-        crop, exp_r=exp_r, play_override=play_override, debug=debug
+        crop, exp_r=exp_r, play_override=play_override, pockets_override=pockets, debug=debug
     )
     return State2(
         width=w, height=h,

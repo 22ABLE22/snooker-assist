@@ -122,6 +122,12 @@ def detect_felt(img_bgr: np.ndarray) -> tuple[int, int, int, int] | None:
     返回 play_rect（由实测袋心反推），而非绿色台呢外框 ——
     这样 overlay 的 F7 校准、analyze 的几何归一化用的是同一个框，
     避免「校准一个框、计算用另一个框」的错位。
+
+    注意：袋心必须在**整图**上搜（detect_pocket_centers_region）。
+    袋口位于库区、其中心通常落在台呢外框之外，若只在裁剪图内部搜，
+    袋洞会被窗口边界切掉一部分，质心被系统性拉向台面内侧
+    （实测偏内约 23px，叠加坐标系差共 33px ≈ 1.7 个球半径），
+    而 geometry 完全依赖袋口坐标决定瞄准方向。
     """
     global _CLOTH_NAME
     try:
@@ -131,21 +137,21 @@ def detect_felt(img_bgr: np.ndarray) -> tuple[int, int, int, int] | None:
     if felt is None:
         return None
     fx, fy, fw, fh = felt
-    inset = 3
-    crop = img_bgr[fy + inset : fy + fh - inset, fx + inset : fx + fw - inset]
-    if crop.size == 0:
+    if fw < 120 or fh < 80:
         return None
     try:
-        pockets = _d2.detect_pocket_centers(crop)
-        pr = _d2.play_rect_from_pockets(pockets, crop.shape[1], crop.shape[0])
+        pockets_img = _d2.detect_pocket_centers_region(img_bgr, (fx, fy, fw, fh))
+        # 袋心是图像坐标；转成以台呢框为原点的局部坐标再反推比赛区
+        local = [(px - fx, py - fy) for px, py in pockets_img]
+        pr = _d2.play_rect_from_pockets(local, fw, fh)
     except Exception:
         return None
-    if pr == (0.0, 0.0, float(crop.shape[1]), float(crop.shape[0])):
+    if pr == (0.0, 0.0, float(fw), float(fh)):
         # 袋口检测失败，退回台呢框内缩（保守估计）
         pad = max(4, int(min(fw, fh) * 0.03))
         return (fx + pad, fy + pad, fw - 2 * pad, fh - 2 * pad)
-    x = int(round(pr[0])) + fx + inset
-    y = int(round(pr[1])) + fy + inset
+    x = int(round(pr[0])) + fx
+    y = int(round(pr[1])) + fy
     w = int(round(pr[2]))
     h = int(round(pr[3]))
     if w < 40 or h < 20:
@@ -258,11 +264,14 @@ def _clamp_balls_into_play_area(balls: list[Ball], felt: tuple[int, int, int, in
 def _pockets_from_debug(
     debug: dict, felt_img: tuple[int, int, int, int]
 ) -> list[tuple[float, float]]:
-    """把实测袋心转成 felt_rect 归一化坐标。
+    """把实测袋心转成 felt_rect 归一化坐标（6 个袋全部用实测值）。
 
-    只保留角袋（中袋归一化后必然落在 [0,1] 之外，因为中袋袋心在库线上、
-    而 felt_rect 的四角才是角袋中心）。中袋按长边中点补上，
-    与 geometry.default_pockets() 完全一致 —— geometry 正是这样定义袋口的。
+    角袋：实测袋心恰好落在 felt_rect 四角附近，归一化后夹到 [0,1]。
+    中袋：实测袋心在长边中点、且**略微落在 felt_rect 之外**
+          （袋口在库线上，而 felt_rect 是球心可及范围）。
+          实测 y ≈ -0.028 / 1.028，若硬写成 0 / 1 会引入约 19px 偏差
+          （≈1 个球半径），足以让瞄准方向明显偏斜。
+          故这里保留实测值，允许略微超出 [0,1]。
     """
     pr = debug.get("play_rect")
     pockets = debug.get("pockets")
@@ -272,16 +281,38 @@ def _pockets_from_debug(
     if pw <= 0 or ph <= 0:
         return build_pockets(felt_img)
 
-    # 角袋：取四个最靠近 play_rect 角的实测袋心，夹到 [0,1]
-    corners = ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0))
     norm = [((cx - px) / pw, (cy - py) / ph) for cx, cy in pockets]
-    out: list[tuple[float, float]] = []
+
+    # 角袋：取四个最靠近四角的实测袋心，夹到 [0,1]
+    corners = ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0))
+    corner_pts: list[tuple[float, float]] = []
+    used: set[int] = set()
     for tx, ty in corners:
-        bx, by = min(norm, key=lambda n: (n[0] - tx) ** 2 + (n[1] - ty) ** 2)
-        out.append((float(min(1.0, max(0.0, bx))), float(min(1.0, max(0.0, by)))))
-    # 中袋：长边中点（geometry 的约定）
-    out.extend([(0.5, 0.0), (0.5, 1.0)])
-    return out
+        order = sorted(range(len(norm)),
+                       key=lambda i: (norm[i][0] - tx) ** 2 + (norm[i][1] - ty) ** 2)
+        j = next((i for i in order if i not in used), order[0])
+        used.add(j)
+        corner_pts.append((float(min(1.0, max(0.0, norm[j][0]))),
+                           float(min(1.0, max(0.0, norm[j][1])))))
+
+    # 中袋：取剩余袋心中「最靠近长边中点」的两个，保留实测 y（允许超出 [0,1]）
+    rest = [norm[i] for i in range(len(norm)) if i not in used]
+    mids: list[tuple[float, float]] = []
+    for ty in (0.0, 1.0):
+        if not rest:
+            mids.append((0.5, ty))
+            continue
+        j = min(range(len(rest)), key=lambda i: (rest[i][0] - 0.5) ** 2 + (rest[i][1] - ty) ** 2)
+        mx, my = rest.pop(j)
+        # 中袋 x 理论上在长边中点；y 保留实测（关键：不要硬写成 0/1）
+        mids.append((float(min(0.9, max(0.1, mx))), float(my)))
+
+    # 返回顺序与 build_pockets / geometry.default_pockets 一致：
+    #   左上 中上 右上 左下 中下 右下
+    return [
+        corner_pts[0], mids[0], corner_pts[1],
+        corner_pts[2], mids[1], corner_pts[3],
+    ]
 
 
 # ---------------------------------------------------------------- 绘制
