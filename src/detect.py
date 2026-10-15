@@ -312,8 +312,19 @@ def analyze_frames(
                 }
             )
         per_frame.append(dets)
-        if r_cache is None and dets:
-            r_cache = float(np.median([d["r"] for d in dets]))
+        # 半径复用：必须回传**扫描选中**的 exp_r，不能回传球对象上的 r。
+        #
+        # 这是一个曾导致「检测不到白球」的坑：球对象的 r 是**半径校正后**的
+        # 最终值（本帧 24.77），而 analyze_frame2 的 exp_r 参数语义是
+        # **扫描前的初值**（本帧 21.49）。把校正值当初值回传会让尺度不匹配，
+        # 贴库球会漏检 —— 实测：exp_r=None 得 21 颗（含白球），
+        # exp_r=24.77 只得 20 颗（白球丢失）。
+        # 后果：只有第 1 帧检出白球，其余帧都没有 -> 融合投票 1 < min_votes
+        # -> 白球被整体剔除，界面显示「未检测到白球」。
+        if r_cache is None:
+            r_cache = debug.get("exp_r")
+            if not r_cache and dets:
+                r_cache = float(np.median([d["r"] for d in dets]))
         if pockets_norm is None:
             pockets_norm = _pockets_from_debug(debug, felt_img)
 
