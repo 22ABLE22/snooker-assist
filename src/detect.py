@@ -368,14 +368,17 @@ def _clamp_balls_into_play_area(balls: list[Ball], felt: tuple[int, int, int, in
 def _pockets_from_debug(
     debug: dict, felt_img: tuple[int, int, int, int]
 ) -> list[tuple[float, float]]:
-    """把实测袋心转成 felt_rect 归一化坐标（6 个袋全部用实测值）。
+    """把实测袋心转成 felt_rect 归一化坐标。
 
     角袋：实测袋心恰好落在 felt_rect 四角附近，归一化后夹到 [0,1]。
-    中袋：实测袋心在长边中点、且**略微落在 felt_rect 之外**
-          （袋口在库线上，而 felt_rect 是球心可及范围）。
-          实测 y ≈ -0.028 / 1.028，若硬写成 0 / 1 会引入约 19px 偏差
-          （≈1 个球半径），足以让瞄准方向明显偏斜。
-          故这里保留实测值，允许略微超出 [0,1]。
+
+    中袋：**必须用长边中点 (0.5, 0/1)，不能用实测袋洞中心**。
+        原因（这是一个曾被改错的地方）：
+          * 袋洞中心在**库区**，位于比赛区矩形**之外**约 19~22px（≈1 个球半径）；
+          * 而瞄准目标应该是**球滚落台面的位置**，即台面长边的中点。
+        若用实测袋洞中心，瞄准线与袋口标注圆都会整体偏到台面外
+        （实测偏 -18.6px / +21.7px，而袋口圆半径仅 33px，
+         导致圆有一半在台面外、线路指向台外）。
     """
     pr = debug.get("play_rect")
     pockets = debug.get("pockets")
@@ -399,17 +402,16 @@ def _pockets_from_debug(
         corner_pts.append((float(min(1.0, max(0.0, norm[j][0]))),
                            float(min(1.0, max(0.0, norm[j][1])))))
 
-    # 中袋：取剩余袋心中「最靠近长边中点」的两个，保留实测 y（允许超出 [0,1]）
-    rest = [norm[i] for i in range(len(norm)) if i not in used]
+    # 中袋：只借用实测值确定「哪个袋对应上/下边」，坐标一律用长边中点。
+    rest_idx = [i for i in range(len(norm)) if i not in used]
     mids: list[tuple[float, float]] = []
     for ty in (0.0, 1.0):
-        if not rest:
-            mids.append((0.5, ty))
-            continue
-        j = min(range(len(rest)), key=lambda i: (rest[i][0] - 0.5) ** 2 + (rest[i][1] - ty) ** 2)
-        mx, my = rest.pop(j)
-        # 中袋 x 理论上在长边中点；y 保留实测（关键：不要硬写成 0/1）
-        mids.append((float(min(0.9, max(0.1, mx))), float(my)))
+        if rest_idx:
+            j = min(rest_idx,
+                    key=lambda i: (norm[i][0] - 0.5) ** 2 + (norm[i][1] - ty) ** 2)
+            rest_idx.remove(j)
+        # 关键：用长边中点，不用实测袋洞中心（后者在台面外）
+        mids.append((0.5, float(ty)))
 
     # 返回顺序与 build_pockets / geometry.default_pockets 一致：
     #   左上 中上 右上 左下 中下 右下
