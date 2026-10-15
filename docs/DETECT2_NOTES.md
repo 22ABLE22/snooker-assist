@@ -41,14 +41,20 @@ analyze.py / overlay.py / main.py
 
 ### 半径标定
 
-匹配滤波扫描给出的半径**系统性偏小**（17~18px），而真值约 19.8px。
-用「过球心弦长」为真值标定后，改用**距离变换**直接量半径
-（掩码阈值 11，误差 ≤0.02px）。半径偏小会歪掉幽灵球位置、
+匹配滤波扫描给出的半径有偏差。半径不准会歪掉幽灵球位置、
 库边内移量与走廊宽度，故必须校正。
 
-`config.BALL_RADIUS_SCALE` / `BALL_CENTER_BIAS_X/Y` 是旧引擎的补偿项，
-新引擎已不需要（半径标定到真值，球心由加权质心+限幅精修），
-但 `BALL_RADIUS_PX`（强制半径）仍然生效。
+`config.BALL_RADIUS_SCALE` / `BALL_CENTER_BIAS_X/Y` 是**旧引擎**（detect_legacy）
+的补偿项，新引擎不使用。新引擎的修正是
+`config.BALL_RADIUS_FIX_SCALE = 0.8816`（见下），
+`BALL_RADIUS_PX`（强制半径）仍然生效。
+
+**最终标定（已获用户确认）**：改用**边缘点稳健圆拟合**同时求圆心与半径，
+再乘修正系数 `0.8816`，实测 `r/短边 = 0.02586`。
+三路独立证据互相印证 + 5 样本离散度 ±0.9%。
+> 为什么放弃距离变换：等式「球心处 dt = 球半径」只在**球是孤立圆盘**时成立；
+> 贴库球的掩码会与库边连成一片，实测半径被高估约 13%。
+> 详见 [done.md](done.md) 一之六。
 
 ## 为什么要重做
 
@@ -85,7 +91,7 @@ analyze.py / overlay.py / main.py
      门限一：disk_fill_ratio ≥ 0.85   （实心圆盘证据，**主判据**）
      门限二：色差 > 20 **或** Vstd > 12，且置信度 ≥ 0.55（兜底证据）
 7. 颜色分类：内盘中位 Lab 对参考调色板最近邻
-8. 半径校正：距离变换直接量半径（弦长法标定）
+8. 半径标定：边缘点稳健圆拟合 + `BALL_RADIUS_FIX_SCALE` 修正
 9. 剔除：NMS + 边界/袋口
 ```
 
@@ -106,7 +112,8 @@ analyze.py / overlay.py / main.py
 - **环形均值只统计台呢样像素**（权重 `exp(-d/tau)`）。
   朴素写法 `mean(disk) - mean(annulus)` 对贴库球失效：
   环形区含库边，把环形均值抬高，真绿球得分被压到 18.9（真球 57~81）→ 漏检。
-- **半径由数据自身估计**，不写死。实测在 r=18 处判据见顶，与真球 `r_eq≈18.7` 吻合。
+- **半径由数据自身估计，不写死**。最终经边缘点圆拟合标定为 17.43px
+  （1286x674 台面），即 `r/短边 = 0.02586`。
 
 ## 实测结果
 
@@ -117,7 +124,7 @@ analyze.py / overlay.py / main.py
 | 指标 | 结果 |
 |------|------|
 | 球数 | 12/12 帧均为 **19 颗**，与旧方案**完全一致** |
-| 半径 | 12/12 帧稳定 **19.77px**（弦长法真值 19.75~20.0） |
+| 半径 | 12/12 帧稳定 **17.43px**（`r/短边 = 0.02586`；标定见 done.md 一之六） |
 | 颜色分布 | 12/12 帧均为 `red:14, blue:1, green:1, brown:1, black:1, cue:1` |
 | 坐标合规 | 12/12 帧通过（球心全在可及范围内） |
 | 位置一致性 | 与旧方案逐球偏差 **0.2~2.9px** |
@@ -177,7 +184,9 @@ analyze.py / overlay.py / main.py
 | `verify_lock_roundtrip.py` | F7 校准往返一致性 |
 | `compare_aim.py` | 新旧检测器对瞄准结果的影响 |
 | `compare_frames.py` | 新旧坐标系贴库合规性对比 |
-| `calib_dt.py` / `radius_chord.py` / `measure_radius.py` | 半径标定（距离变换 vs 弦长） |
+| `fit_ball_circles.py` | **半径最终标定**（边缘点稳健圆拟合） |
+| `measure_touching_balls.py` | 相贴球测径（最硬的独立验证） |
+| `calib_dt.py` / `radius_chord.py` / `measure_radius.py` | 早期半径标定（已弃用，仅存档） |
 | `calib_or.py` / `calib_col.py` | 证据门（色差 OR Vstd）与置信度标定 |
 | `calib_playrect.py` / `measure_cushion_line.py` | 比赛区/库边线标定 |
 | `find_fp.py` | 误检定位与放大核对 |
