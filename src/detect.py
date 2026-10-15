@@ -33,7 +33,7 @@ import cv2
 import numpy as np
 
 import detect2 as _d2
-from config import BALL_RADIUS_PX, POCKET_DRAW_RADIUS_RATIO
+from config import BALL_RADIUS_FIX_SCALE, BALL_RADIUS_PX, POCKET_DRAW_RADIUS_RATIO
 
 # 本帧识别到的台泥颜色名（旧接口需要；新引擎目前按绿色台呢定位）
 _CLOTH_NAME = "green"
@@ -217,11 +217,9 @@ def analyze_frame(
         )
 
     # 半径：支持 config.BALL_RADIUS_PX 强制覆盖
-    # 注意 BALL_RADIUS_SCALE / BALL_CENTER_BIAS_* 是旧引擎的补偿项，新引擎已不需要
-    # （半径由距离变换标定到真值，球心由加权质心+限幅精修）。
-    if BALL_RADIUS_PX > 0 and balls:
-        for b in balls:
-            b.r = float(BALL_RADIUS_PX)
+    # （BALL_RADIUS_SCALE / BALL_CENTER_BIAS_* 是**旧引擎** detect_legacy 的补偿项，
+    #   新引擎不使用；新引擎的修正是 BALL_RADIUS_FIX_SCALE，见其说明）
+    _finalize_ball_radius(balls)
 
     # 夹进球心可及范围，满足 geometry 的镜面前提（见函数说明）
     _clamp_balls_into_play_area(balls, felt_img)
@@ -337,15 +335,48 @@ def analyze_frames(
         for d in fused
     ]
 
-    if BALL_RADIUS_PX > 0 and balls:
-        for b in balls:
-            b.r = float(BALL_RADIUS_PX)
+    _finalize_ball_radius(balls)
     _clamp_balls_into_play_area(balls, felt_img)
 
     return TableState(
         width=w, height=h, felt_rect=felt_img, balls=balls,
         pockets=pockets_norm or build_pockets(felt_img),
     )
+
+
+def _finalize_ball_radius(balls: list[Ball]) -> None:
+    """定稿球半径：先套用比例修正，再允许 config 强制覆盖。
+
+    为什么需要比例修正
+    ------------------
+    v2 引擎的半径校正依据是「球心到最近非台呢像素的距离」。
+    但球带**方向性阴影**（暗环），阴影只在部分角度把视觉边缘撑大、
+    绝不会让其变小，于是半径被系统性撑大 —— 实测偏大约 20%。
+
+    正确统计量是边缘分布的**低分位数**（阴影稳健），不是中位数：
+    中位数会被阴影污染（实测 p10=16.50 vs p50=17.50）。
+
+    两个完全独立的真值来源给出同一结果（差 +0.00px）：
+      A. 球体轮廓 p10（逐角度亚像素边缘）-> /引擎 = 0.8345
+      B. 游戏自绘**幽灵球空心圈**外沿（用户指出的真值来源）
+         -> /引擎 = 0.8345
+    故取 BALL_RADIUS_FIX_SCALE = 0.8345。
+
+    半径偏大不只影响标注圆，还会连带影响：
+      * 幽灵球位置（= 目标球心 − 2r·方向）-> 直接歪掉瞄准点；
+      * 库边内移量与走廊宽度（geometry 用 r 作尺度）；
+      * 袋口排除半径、球心夹取范围。
+    """
+    if not balls:
+        return
+    if BALL_RADIUS_PX > 0:
+        for b in balls:
+            b.r = float(BALL_RADIUS_PX)
+        return
+    if BALL_RADIUS_FIX_SCALE and abs(BALL_RADIUS_FIX_SCALE - 1.0) > 1e-9:
+        s = float(BALL_RADIUS_FIX_SCALE)
+        for b in balls:
+            b.r = float(b.r) * s
 
 
 def _clamp_balls_into_play_area(balls: list[Ball], felt: tuple[int, int, int, int]) -> None:
