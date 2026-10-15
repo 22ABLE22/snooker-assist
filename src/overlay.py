@@ -30,9 +30,10 @@ from ctypes import wintypes
 from pathlib import Path
 
 # 保证可导入本目录模块
-ROOT = Path(__file__).resolve().parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SRC_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SRC_DIR.parent
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 from analyze import AnalysisResult, analyze  # noqa: E402
 from capture import find_window_rect, grab_game_window  # noqa: E402
@@ -52,7 +53,7 @@ HOTKEY_IDS = {
     "F10": 110,
     "F11": 111,
 }
-FELT_LOCK_PATH = ROOT / "output" / "felt_lock.json"
+FELT_LOCK_PATH = PROJECT_ROOT / "output" / "felt_lock.json"
 # 委托在 RegisterHotKey 的线程上，消息进线程队列
 _HOTKEY_HWND = wintypes.HWND(0)
 

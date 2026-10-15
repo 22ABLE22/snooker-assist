@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
-"""几何单元测试：python test_geometry.py"""
+"""几何单元测试：python tests/test_geometry.py"""
 
 from __future__ import annotations
 
 import math
 import sys
+from pathlib import Path
+
+# 测试在 tests/ 下，被测模块在 src/ 下
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from geometry import (
     fold_path,

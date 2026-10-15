@@ -3,8 +3,9 @@
 
 from pathlib import Path
 
-# 输出目录
-ROOT = Path(__file__).resolve().parent
+# 目录：本文件在 src/ 下，项目根目录是它的上一级
+SRC_DIR = Path(__file__).resolve().parent
+ROOT = SRC_DIR.parent
 OUT_DIR = ROOT / "output"
 OUT_DIR.mkdir(exist_ok=True)
 

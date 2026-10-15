@@ -9,7 +9,7 @@
 | 模块 | 说明 |
 |------|------|
 | 截屏 | 定位「腾讯桌球」窗口；PrintWindow / BitBlt / 屏幕截 三路选优；DPI 感知 |
-| 识别 | 台面（同色库→黑影→台泥，**多色皮肤自动识别**）、球位置与颜色、统一球径 |
+| 识别 | 台面与球位置/颜色；**与颜色无关的物理证据**判球（详见下节） |
 | 几何 | 球心镜面（长短边各向异性）、1–3 库解球、走廊挡球 |
 | 进球 | 直接 / 吃库后进球 / 翻袋 / 红传红；中袋与角袋角度规则 |
 | 排序 | 斯诺克难度分：方式、球离袋、切角、中袋、库数、路径长 |
@@ -22,19 +22,19 @@
 pip install -r requirements.txt
 
 # 几何自检
-python test_geometry.py
+python tests\test_geometry.py
 
 # 合成局面演示
-python main.py demo
+python src\main.py demo
 
 # 打开游戏后：悬浮窗 + 热键（推荐）
-# 双击 启动悬浮窗.bat 即可（自动进 PEMAE 环境）
-python overlay.py
+# 双击 start_overlay.bat 即可（自动进 PEMAE 环境）
+python src\overlay.py
 
 # 或命令行截图分析
-python main.py snap
-# 双击 启动截图分析.bat
-python main.py analyze "path\to\shot.png" --target red --both
+python src\main.py snap
+# 双击 start_snap.bat
+python src\main.py analyze "path\to\shot.png" --target red --both
 ```
 
 ## 悬浮窗热键
@@ -54,11 +54,11 @@ python main.py analyze "path\to\shot.png" --target red --both
 ## 命令行
 
 ```powershell
-python main.py snap --target blue          # 解/打蓝球
-python main.py snap --pot                  # 只要进球线
-python main.py snap --both --cushions 2    # 进球+解球，最多 2 库
-python main.py snap --no-gui               # 不弹预览，只写 output/
-python main.py calibrate                   # 标定说明
+python src\main.py snap --target blue          # 解/打蓝球
+python src\main.py snap --pot                  # 只要进球线
+python src\main.py snap --both --cushions 2    # 进球+解球，最多 2 库
+python src\main.py snap --no-gui               # 不弹预览，只写 output/
+python src\main.py calibrate                   # 标定说明
 ```
 
 ## 标注含义
@@ -69,54 +69,94 @@ python main.py calibrate                   # 标定说明
 - 橘色圆：袋口（角袋=矩形四角，中袋=长边中点）
 - 顶部状态：目标颜色、方案数、台面 aspect、首选难度分
 
+## 球识别（v2）
+
+识别已重做，不再按颜色切 HSV 阈值，改用与颜色无关的**物理证据**：
+
+| 特征 | 球 | 台呢 / 干扰物 |
+|------|-----|------|
+| 盘内色差覆盖率 | 实心圆盘 **88.8~100%** | 库边只切过一侧 **43.6~75.4%** |
+| 明暗渐变 Vstd | 球体有高光 **34~58** | 平坦 **≈0.4** |
+
+* **色彩通道**负责定位（对与台呢不同色的球精准）；
+* **Vstd 通道**负责找回同色球（绿球在绿台呢上，色差仅 26.6 无法成峰）；
+* **`disk_fill_ratio` 是主判据**，彻底排除库边/高光/球杆等长条与小块；
+* **证据门（色差 OR Vstd）+ 置信度门限**，兼顾真实球与纯色合成球，
+  并排除台呢水印弧线（误检 conf=0.43 vs 真球 0.90~0.99）；
+* **半径两步标定**：匹配滤波粗估 → 距离变换精修（弦长法标定，误差 ≤0.02px）。
+
+实测：12 帧离线 + 15 次实时连续抓取，球数/半径/颜色分布**零波动**；
+满台局面（22 颗）比旧实现多找回 1 颗贴库红球。
+详见 [docs/DETECT2_NOTES.md](docs/DETECT2_NOTES.md)。
+
+> `src/detect.py` 是**接口层**，对外接口与旧版完全一致，
+> 因此 `analyze.py` / `overlay.py` / `main.py` 无需改动。
+> 旧的 HSV 实现保留为 `dev/detect_legacy.py`，仅供 `dev/bench.py` 做基线对比。
+
 ## 关键规则（已实现）
 
-1. **镜面**：库边向内平移球半径；`rx = r/aspect`，`ry = r`；每帧用实测 felt 长宽比  
-2. **挡球**：路径向两侧扫过 2R 走廊；多库时中间段不得碰到目标球，仅最后一击可碰  
-3. **进球角**：目标处夹角 ≥ `POT_MIN_ANGLE_DEG`（默认 110°）  
-4. **中袋**：与长库夹角 ≥ 15°，否则不可打中袋  
-5. **角袋贴库**：与某条袋角库边夹角 &lt; 15° 时，瞄准点沿另一库边外偏一个球半径  
-6. **传球**：仅打红时允许**红传红**；打彩球禁止传球  
-7. **排序**：直接易球优先于吃库/传球/翻袋；解球一库优于多库  
-8. **台泥皮肤**：默认 `FELT_CLOTH_MODE="auto"`，在绿/蓝/红/紫/黄中自动选主色；也可在 `config.py` 写死  
-9. **台面锁定**：F7 校准并确认后，本盘内 F8/F9 **不再改台面大小**；六袋按最终矩形生成；袋口圆半径见 `POCKET_DRAW_RADIUS_RATIO`  
+1. **镜面**：库边向内平移球半径；`rx = r/aspect`，`ry = r`；每帧用实测 felt 长宽比
+2. **挡球**：路径向两侧扫过 2R 走廊；多库时中间段不得碰到目标球，仅最后一击可碰
+3. **进球角**：目标处夹角 ≥ `POT_MIN_ANGLE_DEG`（默认 110°）
+4. **中袋**：与长库夹角 ≥ 15°，否则不可打中袋
+5. **角袋贴库**：与某条袋角库边夹角 &lt; 15° 时，瞄准点沿另一库边外偏一个球半径
+6. **传球**：仅打红时允许**红传红**；打彩球禁止传球
+7. **排序**：直接易球优先于吃库/传球/翻袋；解球一库优于多库
+8. **台面锁定**：F7 校准并确认后，本盘内 F8/F9 **不再改台面大小**；
+   六袋按最终矩形生成；袋口圆半径见 `POCKET_DRAW_RADIUS_RATIO`
 
-> 红色台泥与红球同色，红球会明显变难，属已知限制。
+## 配置（`src/config.py`）
 
-## 配置（`config.py`）
+可调项包括：球径 `BALL_RADIUS_PX`、台面内缩、各难度权重、中袋/角袋角度等。
+改完无需改代码，重启 `overlay.py` 即可。
 
-可调项包括：球径 `BALL_RADIUS_PX` / `BALL_RADIUS_SCALE`、球心偏移、台面内缩、阴影阈值、各难度权重、中袋/角袋角度等。改完无需改代码，重启 `overlay.py` 即可。
+识别侧关键阈值在 `src/detect2.py`（均有实测标定依据，见 `docs/todo.md` 末表）。
 
 ## 项目结构
 
 ```text
-main.py          CLI 入口
-overlay.py       置顶悬浮窗 + 全局热键
-capture.py       截屏 / 找窗口
-detect.py        台面与球识别
-geometry.py      镜面、走廊、进球/解球搜索与评分
-analyze.py       分析管线与标注绘制
-config.py        全部可调参数
-test_geometry.py 几何与规则单测
-hotkey.py        兼容入口（转发 overlay）
-done.md          已完成能力
-todo.md          已知问题与待办
+src/             核心代码
+  main.py        CLI 入口
+  overlay.py     置顶悬浮窗 + 全局热键
+  capture.py     截屏 / 找窗口
+  detect.py      识别接口层（对外保留旧接口，内部调用 detect2）
+  detect2.py     识别引擎（Lab 局部背景 + 双通道物理证据）
+  geometry.py    镜面、走廊、进球/解球搜索与评分
+  analyze.py     分析管线与标注绘制
+  config.py      全部可调参数
+  hotkey.py      兼容入口（转发 overlay）
+tests/           单元测试
+dev/             开发与验证脚本（新旧评测、标定、稳定性）
+tools/           独立工具（镜面几何核查）
+docs/            文档（识别说明 / done / todo / 历史归档）
+samples/         参考样本（12 帧真实对局 + 识别结果 + 关键证据图）
+output/          运行产物（截图、标注、felt_lock.json）
 ```
 
 ## 测试
 
 ```powershell
-python test_geometry.py
+python tests\test_geometry.py          # 几何与规则单测
+python tests\test_detect.py            # 识别回归（12 帧样本，216 项断言）
+python dev\verify_integration.py       # 识别全链路（接口/检测/合规/几何/锁定模式）
+python dev\live_stability.py           # 实时连续抓取稳定性（需游戏窗口可见）
+python dev\compare_frames.py           # 新旧坐标系贴库合规性对比
 ```
 
-覆盖：反射与吃库角、挡球走廊、中袋/角袋规则、传球合法性、斯诺克难度排序等。
+覆盖：反射与吃库角、挡球走廊、中袋/角袋规则、传球合法性、斯诺克难度排序，
+以及球识别的接口兼容、坐标合规、校准往返一致性。
 
 ## 已知限制
 
-- 不建模加塞 / 高低杆引起的吃库角变化  
-- 中袋袋口几何为近似  
-- 绿球/棕球在复杂 UI 下仍可能误检  
-- 需要 Windows + 俯视「腾讯桌球」类画面  
+- **球识别速度**约 1.2s/次（识别 0.6s + 几何 0.6s）。按 F8/F9 单次触发够用；
+  若要更快可缓存上一帧球半径（球台不变时半径恒定）。
+- **仅支持绿色台呢定位**：新引擎的 `find_felt` 色相窗写死 40~88。
+  旧实现的多色皮肤自动识别（`FELT_CLOTH_MODE`）尚未移植，见 `docs/todo.md` P0-2。
+- **绿球置信度偏低**（≈0.57）：与台呢同色，分类裕度天然小；位置与判定正确。
+- **悬浮窗与窗口的坐标对齐**在非 100% DPI 下可能有整体偏移，见 `docs/todo.md` P0-1。
+- 不建模加塞 / 高低杆引起的吃库角变化
+- 中袋袋口几何为近似
+- 需要 Windows + 俯视「腾讯桌球」类画面
 
 ## License
 

@@ -1,12 +1,21 @@
 # -*- coding: utf-8 -*-
-"""球台与球的视觉检测"""
+"""球台与球的视觉检测 —— 旧实现（HSV 分色阈值）
+
+仅供 dev/bench.py 做基线对比，**不参与运行时**。
+当前出厂实现见 src/detect2.py（引擎）+ src/detect.py（接口层）。
+"""
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import cv2
 import numpy as np
+
+# 本文件在 dev/ 下，核心模块在 src/ 下
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from config import (
     BALL_CENTER_BIAS_X,

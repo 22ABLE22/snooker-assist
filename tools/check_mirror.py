@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """核查吃库镜面：是否边线内移半径、入射角=反射角。"""
+from pathlib import Path
 import math
 import sys
 
-sys.path.insert(0, r"E:\Users\Admin\SNOOKER")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from geometry import plan_cue_bank, cushion_axis_value, radii_xy, set_table_aspect
 from config import TABLE_ASPECT
 

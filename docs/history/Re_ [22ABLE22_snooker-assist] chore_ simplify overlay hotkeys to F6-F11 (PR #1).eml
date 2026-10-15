@@ -1,0 +1,327 @@
+Received: from out-26.smtp.github.com (unknown [192.30.252.209])
+	by gzmx31 (Coremail) with SMTP id 1igvCgDXb7Qrha9qhTQiAQ--.14691S82;
+	Sun, 20 Sep 2026 15:05:56 +0800 (CST)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=github.com;
+	s=pf2023; t=1789887955;
+	bh=h5NjuzRm5TnKF27WalX6WJGpyU2bbZwrRCEfvW5ab+g=;
+	h=Date:From:Reply-To:To:Cc:In-Reply-To:References:Subject:List-ID:
+	 List-Archive:List-Post:List-Unsubscribe:List-Unsubscribe-Post:
+	 From;
+	b=HT3sJu30sXTiJr0c3JgPJA6hFLHGRNaeRqeBZT7rpY03y9Vi+YdzB0lYsSzck1w6D
+	 5/eSgVhgaZ8+nHjA/9zaNJv48/H5a+qt28Z24GiEnMGGf+O4kyvGjSMgk37qrX1V/S
+	 5SNnwqpKdJNwJyH/bHKY6K5uTstSRGmJ2T0YmHGQ=
+Received: from github.com (hubbernetes-node-f7732ae.ash1-iad.github.net [10.56.189.47])
+	by smtp.github.com (Postfix) with ESMTPA id 428385204E3
+	for <crh1102@163.com>; Sun, 20 Sep 2026 00:05:55 -0700 (PDT)
+Date: Sun, 20 Sep 2026 00:05:55 -0700
+From: Copilot <notifications@github.com>
+Reply-To: 22ABLE22/snooker-assist <reply+B27SNGVW4JWOGDKNPF53GVTLE57FHEVBNHHQAAAAAFEMZZ54@reply.github.com>
+To: 22ABLE22/snooker-assist <snooker-assist@noreply.github.com>
+Cc: 22ABLE22 <crh1102@163.com>, 
+ Author <author@noreply.github.com>
+Message-ID: <22ABLE22/snooker-assist/pull/1/review/5259854650@github.com>
+In-Reply-To: <22ABLE22/snooker-assist/pull/1@github.com>
+References: <22ABLE22/snooker-assist/pull/1@github.com>
+Subject: Re: [22ABLE22/snooker-assist] chore: simplify overlay hotkeys to
+ F6-F11 (PR #1)
+Mime-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="--==_mimepart_6aaf85d340205_f311c81859249";
+ charset=UTF-8
+Content-Transfer-Encoding: 7bit
+Precedence: list
+X-GitHub-Sender: Copilot
+X-GitHub-Recipient: 22ABLE22
+X-GitHub-Reason: author
+List-ID: 22ABLE22/snooker-assist <snooker-assist.22ABLE22.github.com>
+List-Archive: https://github.com/22ABLE22/snooker-assist
+List-Post: <mailto:reply+B27SNGVW4JWOGDKNPF53GVTLE57FHEVBNHHQAAAAAFEMZZ54@reply.github.com>
+List-Unsubscribe: <mailto:unsub+B27SNGVW4JWOGDKNPF53GVTLE57FHEVBNHHQAAAAAFEMZZ54@reply.github.com>,
+ <https://github.com/notifications/unsubscribe/one-click/B27SNGRBAL4VVP3VSSIKBBT5P56VHAVCNFSNUABGKJSXA33TNF2G64TZHMYTGNRXGAZDINBTGQ5US43TOVSTWNJVGE3DGNJVGUYTNILWAI>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+X-GitHub-Notify-Platform: newsies
+X-Auto-Response-Suppress: All
+destinations: crh1102@163.com
+X-GitHub-Recipient-Address: crh1102@163.com
+X-CM-TRANSID:1igvCgDXb7Qrha9qhTQiAQ--.14691S82
+Authentication-Results: gzmx31; spf=pass smtp.mail=noreply@github.com;
+	 dkim=pass header.i=@github.com
+X-Coremail-Antispam: 1Uf129KBjvJXoW7Aw18ZFW5Zr47JFy5WF48WFg_yoW8Wry3pa
+	1DG39rAr4rAFy3XF1xX3W8XrySkrn7tF4UXFyqvryDWa95A340yF42k3y3Ka17WF4FqFyY
+	vF47tr9Ykws0vrDanT9S1TB71UUUUU7qnTZGkaVYY2UrUUUUjbIjqfuFe4nvWSU5nxnvy2
+	9KBjDUYxBIdaVFxhVjvjDU0xZFpf9x07UrWrZUUUUU=
+Sender: noreply@github.com
+
+
+----==_mimepart_6aaf85d340205_f311c81859249
+Content-Type: text/plain;
+ charset=UTF-8
+Content-Transfer-Encoding: quoted-printable
+
+@Copilot commented on this pull request.
+
+<!-- ccr-overview-v2 -->
+
+## Copilot review overview
+
+### =F0=9F=9F=A1 Changes recommended
+
+Batch help pipes are unescaped, and runtime help still exposes undocument=
+ed F12 despite the stated hotkey set.
+
+*Get a fresh assessment by requesting another Copilot review.*
+
+**Review effort:** Lite  =
+
+**Findings:** 1 <picture><source media=3D"(prefers-color-scheme: dark)" s=
+rcset=3D"https://github.githubassets.com/static/images/icons/copilot-code=
+-review/medium-v2-dark.svg"><source media=3D"(prefers-color-scheme: light=
+)" srcset=3D"https://github.githubassets.com/static/images/icons/copilot-=
+code-review/medium-v2-light.svg"><img src=3D"https://github.githubassets.=
+com/static/images/icons/copilot-code-review/medium-v2-light.png" alt=3D"M=
+edium severity" width=3D"62" height=3D"18" align=3D"texttop"></picture>
+
+<details open>
+<summary><strong>Open (1)</strong></summary>
+
+- <picture><source media=3D"(prefers-color-scheme: dark)" srcset=3D"https=
+://github.githubassets.com/static/images/icons/copilot-code-review/medium=
+-v2-dark.svg"><source media=3D"(prefers-color-scheme: light)" srcset=3D"h=
+ttps://github.githubassets.com/static/images/icons/copilot-code-review/me=
+dium-v2-light.svg"><img src=3D"https://github.githubassets.com/static/ima=
+ges/icons/copilot-code-review/medium-v2-light.png" alt=3D"Medium severity=
+" width=3D"62" height=3D"18" align=3D"texttop"></picture> [Remove undocum=
+ented F12 hotkey or document it consistently](#discussion_r4056367671) =C2=
+=B7 New
+</details>
+
+<details>
+<summary><strong>What changed in this PR</strong></summary>
+
+Updates overlay hotkey documentation and runtime status text to use the F=
+6=E2=80=93F11 controls, with Esc for exit.
+
+**Changes:**
+- Reorders README hotkey documentation.
+- Updates launcher and console help text.
+- Slows the overlay polling interval from 40ms to 80ms.
+
+| File | Description |
+| ---- | ----------- |
+| `=E5=90=AF=E5=8A=A8=E6=82=AC=E6=B5=AE=E7=AA=97.bat` | Updates launcher =
+hotkey help. |
+| `README.md` | Aligns the documented hotkey table. |
+| `overlay.py` | Updates status/help text and polling interval. |
+</details>
+
+---
+
+=F0=9F=92=A1 <a href=3D"/22ABLE22/snooker-assist/new/main?filename=3D.git=
+hub/skills/code-review/SKILL.md" class=3D"Link--inTextBlock" target=3D"_b=
+lank" rel=3D"noopener noreferrer">Add a `code-review` agent skill</a> or =
+configure MCP servers for context-aware, tailored reviews. <a href=3D"htt=
+ps://docs.github.com/copilot/how-tos/use-copilot-agents/request-a-code-re=
+view/use-code-review?tool=3Dwebui#mcp-servers-and-agent-skills" class=3D"=
+Link--inTextBlock" target=3D"_blank" rel=3D"noopener noreferrer">Learn mo=
+re in the docs.</a>
+
+>          print("  F6 =E6=B8=85=E5=8F=B0=E9=9D=A2=E9=94=81=E5=AE=9A  F7 =
+=E6=A0=A1=E5=87=86/=E9=94=81=E5=AE=9A=E5=8F=B0=E9=9D=A2")
+-        print("  F8 =E8=A7=A3=E7=90=83  F9 =E8=BF=9B=E7=90=83  F10 =E5=88=
+=87=E6=8D=A2=E7=9B=AE=E6=A0=87  F11 =E6=98=BE=E9=9A=90  F12/Esc =E9=80=80=
+=E5=87=BA")
+-        print("  =E9=BC=A0=E6=A0=87=E9=BB=98=E8=AE=A4=E7=A9=BF=E9=80=8F=EF=
+=BC=9B=E6=A0=A1=E5=87=86=E4=B8=AD=E5=8F=AF=E6=8B=96=E5=9B=9B=E8=BE=B9=E6=88=
+=96=E7=82=B9=E5=BA=95=E9=83=A8=E6=8C=89=E9=92=AE")
++        print("  F10 =E5=88=87=E6=8D=A2=E7=9B=AE=E6=A0=87  F11 =E6=98=BE=
+=E9=9A=90  F12/Esc =E9=80=80=E5=87=BA")
+
+F12 is still advertised here, and it is also still registered/bound in `r=
+egister_hotkeys`, `__init__`, and `_tick`. That contradicts the stated F6=
+=E2=80=93F11 + Esc hotkey set and leaves an undocumented F12 exit path; r=
+emove F12 from the registration and bindings, or retain and document it c=
+onsistently.
+
+-- =
+
+Reply to this email directly or view it on GitHub:
+https://github.com/22ABLE22/snooker-assist/pull/1#pullrequestreview-52598=
+54650
+You are receiving this because you authored the thread.
+
+Message ID: <22ABLE22/snooker-assist/pull/1/review/5259854650@github.com>=
+
+----==_mimepart_6aaf85d340205_f311c81859249
+Content-Type: text/html;
+ charset=UTF-8
+Content-Transfer-Encoding: quoted-printable
+
+<p></p>
+<p><b>@Copilot</b> commented on this pull request.</p>
+
+
+<h2 dir=3D"auto">Copilot review overview</h2>
+<h3 dir=3D"auto">=F0=9F=9F=A1 Changes recommended</h3>
+<p dir=3D"auto">Batch help pipes are unescaped, and runtime help still ex=
+poses undocumented F12 despite the stated hotkey set.</p>
+<p dir=3D"auto"><em>Get a fresh assessment by requesting another Copilot =
+review.</em></p>
+<p dir=3D"auto"><strong>Review effort:</strong> Lite<br>
+<strong>Findings:</strong> 1 <themed-picture data-catalyst-inline=3D"true=
+"><picture><source media=3D"(prefers-color-scheme: dark)" srcset=3D"https=
+://camo.githubusercontent.com/cb6d10b2182e7341312004e938462213d9cb31e1f1e=
+7987fb021c38e31c6d974/68747470733a2f2f6769746875622e676974687562617373657=
+4732e636f6d2f7374617469632f696d616765732f69636f6e732f636f70696c6f742d636f=
+64652d7265766965772f6d656469756d2d76322d6461726b2e737667" data-canonical-=
+src=3D"https://github.githubassets.com/static/images/icons/copilot-code-r=
+eview/medium-v2-dark.svg"><source media=3D"(prefers-color-scheme: light)"=
+ srcset=3D"https://camo.githubusercontent.com/053055dd9104a64ca12152416e8=
+fb067a751f78a33db1dd70dfcc6d69fc0e752/68747470733a2f2f6769746875622e67697=
+46875626173736574732e636f6d2f7374617469632f696d616765732f69636f6e732f636f=
+70696c6f742d636f64652d7265766965772f6d656469756d2d76322d6c696768742e73766=
+7" data-canonical-src=3D"https://github.githubassets.com/static/images/ic=
+ons/copilot-code-review/medium-v2-light.svg"><img src=3D"https://camo.git=
+hubusercontent.com/61bc3f51460c23a17b60ad45bd0941ac833960ebf1f0f46c74b915=
+e68f750e93/68747470733a2f2f6769746875622e6769746875626173736574732e636f6d=
+2f7374617469632f696d616765732f69636f6e732f636f70696c6f742d636f64652d72657=
+66965772f6d656469756d2d76322d6c696768742e706e67" alt=3D"Medium severity" =
+width=3D"62" height=3D"18" align=3D"texttop" data-canonical-src=3D"https:=
+//github.githubassets.com/static/images/icons/copilot-code-review/medium-=
+v2-light.png"></picture></themed-picture></p>
+<details open=3D"">
+<summary><strong>Open (1)</strong></summary>
+<ul dir=3D"auto">
+<li><themed-picture data-catalyst-inline=3D"true"><picture><source media=3D=
+"(prefers-color-scheme: dark)" srcset=3D"https://camo.githubusercontent.c=
+om/cb6d10b2182e7341312004e938462213d9cb31e1f1e7987fb021c38e31c6d974/68747=
+470733a2f2f6769746875622e6769746875626173736574732e636f6d2f7374617469632f=
+696d616765732f69636f6e732f636f70696c6f742d636f64652d7265766965772f6d65646=
+9756d2d76322d6461726b2e737667" data-canonical-src=3D"https://github.githu=
+bassets.com/static/images/icons/copilot-code-review/medium-v2-dark.svg"><=
+source media=3D"(prefers-color-scheme: light)" srcset=3D"https://camo.git=
+hubusercontent.com/053055dd9104a64ca12152416e8fb067a751f78a33db1dd70dfcc6=
+d69fc0e752/68747470733a2f2f6769746875622e6769746875626173736574732e636f6d=
+2f7374617469632f696d616765732f69636f6e732f636f70696c6f742d636f64652d72657=
+66965772f6d656469756d2d76322d6c696768742e737667" data-canonical-src=3D"ht=
+tps://github.githubassets.com/static/images/icons/copilot-code-review/med=
+ium-v2-light.svg"><img src=3D"https://camo.githubusercontent.com/61bc3f51=
+460c23a17b60ad45bd0941ac833960ebf1f0f46c74b915e68f750e93/68747470733a2f2f=
+6769746875622e6769746875626173736574732e636f6d2f7374617469632f696d6167657=
+32f69636f6e732f636f70696c6f742d636f64652d7265766965772f6d656469756d2d7632=
+2d6c696768742e706e67" alt=3D"Medium severity" width=3D"62" height=3D"18" =
+align=3D"texttop" data-canonical-src=3D"https://github.githubassets.com/s=
+tatic/images/icons/copilot-code-review/medium-v2-light.png"></picture></t=
+hemed-picture> <a href=3D"#discussion_r4056367671">Remove undocumented F1=
+2 hotkey or document it consistently</a> =C2=B7 New</li>
+</ul>
+</details>
+<details>
+<summary><strong>What changed in this PR</strong></summary>
+<p dir=3D"auto">Updates overlay hotkey documentation and runtime status t=
+ext to use the F6=E2=80=93F11 controls, with Esc for exit.</p>
+<p dir=3D"auto"><strong>Changes:</strong></p>
+<ul dir=3D"auto">
+<li>Reorders README hotkey documentation.</li>
+<li>Updates launcher and console help text.</li>
+<li>Slows the overlay polling interval from 40ms to 80ms.</li>
+</ul>
+<markdown-accessiblity-table><table role=3D"table">
+<thead>
+<tr>
+<th>File</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code class=3D"notranslate">=E5=90=AF=E5=8A=A8=E6=82=AC=E6=B5=AE=E7=AA=
+=97.bat</code></td>
+<td>Updates launcher hotkey help.</td>
+</tr>
+<tr>
+<td><code class=3D"notranslate">README.md</code></td>
+<td>Aligns the documented hotkey table.</td>
+</tr>
+<tr>
+<td><code class=3D"notranslate">overlay.py</code></td>
+<td>Updates status/help text and polling interval.</td>
+</tr>
+</tbody>
+</table></markdown-accessiblity-table>
+</details>
+<hr>
+<p dir=3D"auto">=F0=9F=92=A1 <a href=3D"/22ABLE22/snooker-assist/new/main=
+?filename=3D.github/skills/code-review/SKILL.md">Add a <code class=3D"not=
+ranslate">code-review</code> agent skill</a> or configure MCP servers for=
+ context-aware, tailored reviews. <a href=3D"https://docs.github.com/copi=
+lot/how-tos/use-copilot-agents/request-a-code-review/use-code-review?tool=
+=3Dwebui#mcp-servers-and-agent-skills">Learn more in the docs.</a></p><hr=
+>
+
+<p>In <a href=3D"https://github.com/22ABLE22/snooker-assist/pull/1#discus=
+sion_r4056367671">overlay.py</a>:</p>
+<pre style=3D'color:#555'>&gt;          print(&quot;  F6 =E6=B8=85=E5=8F=B0=
+=E9=9D=A2=E9=94=81=E5=AE=9A  F7 =E6=A0=A1=E5=87=86/=E9=94=81=E5=AE=9A=E5=8F=
+=B0=E9=9D=A2&quot;)
+-        print(&quot;  F8 =E8=A7=A3=E7=90=83  F9 =E8=BF=9B=E7=90=83  F10 =
+=E5=88=87=E6=8D=A2=E7=9B=AE=E6=A0=87  F11 =E6=98=BE=E9=9A=90  F12/Esc =E9=
+=80=80=E5=87=BA&quot;)
+-        print(&quot;  =E9=BC=A0=E6=A0=87=E9=BB=98=E8=AE=A4=E7=A9=BF=E9=80=
+=8F=EF=BC=9B=E6=A0=A1=E5=87=86=E4=B8=AD=E5=8F=AF=E6=8B=96=E5=9B=9B=E8=BE=B9=
+=E6=88=96=E7=82=B9=E5=BA=95=E9=83=A8=E6=8C=89=E9=92=AE&quot;)
++        print(&quot;  F10 =E5=88=87=E6=8D=A2=E7=9B=AE=E6=A0=87  F11 =E6=98=
+=BE=E9=9A=90  F12/Esc =E9=80=80=E5=87=BA&quot;)
+</pre>
+<p dir=3D"auto">F12 is still advertised here, and it is also still regist=
+ered/bound in <code class=3D"notranslate">register_hotkeys</code>, <code =
+class=3D"notranslate">__init__</code>, and <code class=3D"notranslate">_t=
+ick</code>. That contradicts the stated F6=E2=80=93F11 + Esc hotkey set a=
+nd leaves an undocumented F12 exit path; remove F12 from the registration=
+ and bindings, or retain and document it consistently.</p>
+
+<p style=3D"font-size:small;-webkit-text-size-adjust:none;color:#666;">&m=
+dash;<br />Reply to this email directly, <a href=3D"https://github.com/22=
+ABLE22/snooker-assist/pull/1?email_source=3Dnotifications&amp;email_token=
+=3DB27SNGUGY3NJZOHYSPQA3DD5P56VHA5CNFSNUABKM5UWIORPF5TWS5BNNB2WEL2QOVWGYU=
+TFOF2WK43UKJSXM2LFO4XTKMRVHE4DKNBWGUYKM4TFMFZW63VGMF2XI2DPOKSWK5TFNZ2KYZT=
+PN52GK4S7MNWGSY3L#pullrequestreview-5259854650">view it on GitHub</a>, or=
+ <a href=3D"https://github.com/notifications/unsubscribe-auth/B27SNGXOY3Z=
+K2J3ZCYFOXUL5P56VHAVCNFSNUABGKJSXA33TNF2G64TZHMYTGNRXGAZDINBTGQ5US43TOVST=
+WNJVGE3DGNJVGUYTNILWAI">unsubscribe</a>.<br />You are receiving this beca=
+use you authored the thread.<img src=3D"https://github.com/notifications/=
+beacon/B27SNGXUEODZWAPZWN4P5ED5P56VHBFCNFSM6AAAAADAAGWJG2WGG33NNVSW45C7OR=
+4XAZNRKB2WY3CSMVYXKZLTORJGK5TJMV32UY3PNVWWK3TUL5UWJTYAAAAACOMDAM5KM4TFMFZ=
+W63VGMF2XI2DPOI.gif" height=3D"1" width=3D"1" alt=3D"" /><span style=3D"c=
+olor: transparent; font-size: 0; display: none; visibility: hidden; overf=
+low: hidden; opacity: 0; width: 0; height: 0; max-width: 0; max-height: 0=
+; mso-hide: all">Message ID: <span>&lt;22ABLE22/snooker-assist/pull/1/rev=
+iew/5259854650</span><span>@</span><span>github</span><span>.</span><span=
+>com&gt;</span></span></p>
+<script type=3D"application/ld+json">[
+{
+"@context": "http://schema.org",
+"@type": "EmailMessage",
+"potentialAction": {
+"@type": "ViewAction",
+"target": "https://github.com/22ABLE22/snooker-assist/pull/1?email_source=
+=3Dnotifications\u0026email_token=3DB27SNGTCUZQOJLLVK2DAD5D5P56VHA5CNFSNU=
+ABKM5UWIORPF5TWS5BNNB2WEL2QOVWGYUTFOF2WK43UKJSXM2LFO4XTKMRVHE4DKNBWGUYKM4=
+TFMFZW63VGMF2XI2DPOKSWK5TFNZ2KWZ3NMFUWYX3DNRUWG2Y#pullrequestreview-52598=
+54650",
+"url": "https://github.com/22ABLE22/snooker-assist/pull/1?email_source=3D=
+notifications\u0026email_token=3DB27SNGTCUZQOJLLVK2DAD5D5P56VHA5CNFSNUABK=
+M5UWIORPF5TWS5BNNB2WEL2QOVWGYUTFOF2WK43UKJSXM2LFO4XTKMRVHE4DKNBWGUYKM4TFM=
+FZW63VGMF2XI2DPOKSWK5TFNZ2KWZ3NMFUWYX3DNRUWG2Y#pullrequestreview-52598546=
+50",
+"name": "View Pull Request"
+},
+"description": "View this Pull Request on GitHub",
+"publisher": {
+"@type": "Organization",
+"name": "GitHub",
+"url": "https://github.com"
+}
+}
+]</script>=
+
+----==_mimepart_6aaf85d340205_f311c81859249--

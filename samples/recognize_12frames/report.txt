@@ -1,0 +1,79 @@
+==========================================================================
+球体识别交付包: E:\Users\Admin\github\SNOOKER\probe\final_1014_232735
+==========================================================================
+游戏窗口: hwnd=201650 rect=[684, 162, 1270, 767]
+  第 1 帧 1588x959
+  第 2 帧 1588x959
+  第 3 帧 1588x959
+  第 4 帧 1588x959
+  第 5 帧 1588x959
+  第 6 帧 1588x959
+  第 7 帧 1588x959
+  第 8 帧 1588x959
+  第 9 帧 1588x959
+  第 10 帧 1588x959
+  第 11 帧 1588x959
+  第 12 帧 1588x959
+[frame_01] 旧 19 颗 | 新 19 颗 {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  r=17.0px
+[frame_02] 旧 19 颗 | 新 19 颗 {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  r=17.0px
+[frame_03] 旧 19 颗 | 新 19 颗 {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  r=17.0px
+[frame_04] 旧 19 颗 | 新 19 颗 {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  r=17.0px
+[frame_05] 旧 19 颗 | 新 19 颗 {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  r=17.0px
+[frame_06] 旧 19 颗 | 新 19 颗 {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  r=17.0px
+[frame_07] 旧 19 颗 | 新 19 颗 {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  r=17.0px
+[frame_08] 旧 19 颗 | 新 19 颗 {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  r=17.0px
+[frame_09] 旧 19 颗 | 新 19 颗 {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  r=17.0px
+[frame_10] 旧 19 颗 | 新 19 颗 {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  r=17.0px
+[frame_11] 旧 19 颗 | 新 19 颗 {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  r=17.0px
+[frame_12] 旧 19 颗 | 新 19 颗 {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  r=17.0px
+
+==========================================================================
+自检报告
+==========================================================================
+
+[1] 帧间稳定性（球数 / 半径 / 颜色分布）
+    球数: [19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19]   极差=0
+    半径: [17.0, 17.0, 17.0, 17.0, 17.0, 17.0, 17.0, 17.0, 17.0, 17.0, 17.0, 17.0]   极差=0.0
+    判定: 稳定 [OK]
+
+[2] 斯诺克规则约束
+    frame_01: {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  -> OK
+    frame_02: {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  -> OK
+    frame_03: {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  -> OK
+    frame_04: {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  -> OK
+    frame_05: {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  -> OK
+    frame_06: {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  -> OK
+    frame_07: {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  -> OK
+    frame_08: {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  -> OK
+    frame_09: {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  -> OK
+    frame_10: {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  -> OK
+    frame_11: {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  -> OK
+    frame_12: {'red': 14, 'blue': 1, 'green': 1, 'brown': 1, 'black': 1, 'cue': 1}  -> OK
+
+[3] 新旧方案差异
+    frame_01: 旧=19 新=19 差=+0
+    frame_02: 旧=19 新=19 差=+0
+    frame_03: 旧=19 新=19 差=+0
+    frame_04: 旧=19 新=19 差=+0
+    frame_05: 旧=19 新=19 差=+0
+    frame_06: 旧=19 新=19 差=+0
+    frame_07: 旧=19 新=19 差=+0
+    frame_08: 旧=19 新=19 差=+0
+    frame_09: 旧=19 新=19 差=+0
+    frame_10: 旧=19 新=19 差=+0
+    frame_11: 旧=19 新=19 差=+0
+    frame_12: 旧=19 新=19 差=+0
+
+[4] 新方案低置信度球（需人工确认）
+    frame_01 #10 green conf=0.57 score=35.48 @(842,542)
+    frame_02 #10 green conf=0.57 score=35.48 @(842,542)
+    frame_03 #10 green conf=0.57 score=35.48 @(842,542)
+    frame_04 #10 green conf=0.57 score=35.48 @(842,542)
+    frame_05 #10 green conf=0.57 score=35.48 @(842,542)
+    frame_06 #10 green conf=0.57 score=35.48 @(842,542)
+    frame_07 #10 green conf=0.57 score=35.48 @(842,542)
+    frame_08 #10 green conf=0.57 score=35.48 @(842,542)
+    frame_09 #10 green conf=0.57 score=35.48 @(842,542)
+    frame_10 #10 green conf=0.57 score=35.48 @(842,542)
+    frame_11 #10 green conf=0.57 score=35.48 @(842,542)
+    frame_12 #10 green conf=0.57 score=35.48 @(842,542)

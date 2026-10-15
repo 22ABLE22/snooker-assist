@@ -1,6 +1,10 @@
+# 核心依赖
 opencv-python>=4.8
 numpy>=1.24
 mss>=9.0
-# 可选：全局热键双保险
+
+# 全局热键（overlay.py 直接 import，缺失会导致悬浮窗启动失败）
 keyboard>=0.13
+
+# tkinter 为标准库自带，无需 pip 安装（Windows 官方 Python 与 conda 均已包含）
 # Pillow 主流程不依赖

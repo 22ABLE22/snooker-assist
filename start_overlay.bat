@@ -1,6 +1,7 @@
 @echo off
 setlocal
-cd /d E:\Users\Admin\SNOOKER
+rem 用脚本自身所在目录，避免硬编码路径写错
+cd /d "%~dp0"
 
 set "PY=D:\ProgramData\miniconda3\envs\PEMAE\python.exe"
 if not exist "%PY%" set "PY=python"
@@ -24,7 +25,7 @@ echo Python: %PY%
 echo Starting overlay...
 echo.
 
-"%PY%" overlay.py
+"%PY%" src\overlay.py
 set "RC=%ERRORLEVEL%"
 
 echo.
