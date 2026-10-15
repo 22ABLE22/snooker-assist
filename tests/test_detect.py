@@ -35,13 +35,13 @@ FRAMES = sorted(SAMPLES.glob("frame_*_raw.png"))
 EXPECT_TOTAL = 19
 EXPECT_RED = 14
 EXPECT_CUE = 1
-# 半径：由「球体轮廓 p10（阴影稳健）」与「游戏自绘幽灵圈外沿」双路独立标定，
-# 两者完全吻合（差 +0.00px），经 BALL_RADIUS_FIX_SCALE=0.8345 修正后为 16.50px。
-# 历史：修正前引擎报 19.77px，偏大约 20%（把方向性阴影算进了球体）。
-EXPECT_RADIUS = 16.50
+# 半径：由「边缘点稳健圆拟合」标定（同时求圆心与半径，5 样本一致），
+# 经 BALL_RADIUS_FIX_SCALE=0.8816 修正后为 17.43px。
+# 历史：修正前引擎报 19.77px（偏大约 13%，把方向性阴影算进球体）。
+EXPECT_RADIUS = 17.43
 RADIUS_TOL = 0.5
 # 半径/台面短边 —— 与分辨率无关，可用于跨窗口校验
-EXPECT_RADIUS_OVER_FH = 0.02448
+EXPECT_RADIUS_OVER_FH = 0.02586
 RADIUS_FH_TOL = 0.0006
 # 比赛区 aspect：实测 1.92；斯诺克理论 2.007，放宽到 1.7~2.3
 ASPECT_LO, ASPECT_HI = 1.70, 2.30
